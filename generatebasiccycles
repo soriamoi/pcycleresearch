@@ -1,0 +1,45 @@
+"""
+The double-shortest-path methods is from another python file named "Dijkstra_CIDA.py"
+"""
+
+
+import math
+import sys
+from collections import deque, defaultdict
+from itertools import groupby
+from Dijkstra_CIDA import *   #To get shortest path: shortest_path(graph, 'A', 'D')
+
+### Enumerating set of simple cycles
+    # Generate a basic cycle by creating and fusing two node-disjoint paths using Dijkstra's Algorithm
+    
+def Enumerate_Start_Cycles(nodes, span_node, node_span):
+    pcycles = {}
+    new_id = 0
+    for sid, spanner in span_node.items():
+        N1 = spanner[0]
+        N2 = spanner[1]
+        cost_shortest, path_shortest, cost_shortest2, path_shortest2 = double_shortestPath(graph, N1, N2)
+        if cost_shortest == sys.maxsize:
+            continue
+        cycle_span_info = {}
+        for node_start, node_end in zip(path_shortest[:-1], path_shortest[1:]):
+            span_ider = node_span[node_start + " , " + node_end]
+            cycle_span_info[span_ider] = 1
+        cycle_span_info[sid] = 1
+        cycle_id = "Cycle " + str(new_id) # new cycle id given
+
+        pcycles[cycle_id] = cycle_span_info
+        new_id += 1
+        if cost_shortest2 == sys.maxsize:
+            continue
+        cycle_span_info2 = {}
+        for node_start2, node_end2 in zip(path_shortest2[:-1], path_shortest2[1:]):
+            span_ider2 = node_span[node_start2 + " , " + node_end2]
+            cycle_span_info2[span_ider2] = 1
+        pcycle_info = {**cycle_span_info, **cycle_span_info2}
+        pcycle_info[sid] = 2
+        pcycle_id = "PCycle " + str(new_id) # new pcycle id given
+        pcycles[pcycle_id] = pcycle_info
+        new_id += 1
+        
+    return pcycles
