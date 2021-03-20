@@ -1,0 +1,287 @@
+"""
+DDCD stands for Disjoit-paths Dijkstra Cycle Development,
+which is a novel heuristic p-cycle enumeration method that I developed over course of my MSc study.
+It is an iterative cycle development method based on Dijkstra’s algorithm 
+and has been proved to enumerate high-performance candidate p-cycles in small and large networks compared to prior studies.
+"""
+
+##################################################################################
+# This code enumerate pcycles using DDCD method (Disjoit-paths Dijkstra Cycle Development)
+# Most recently revised on Oct 12, 2020
+##################################################################################
+
+import random
+import copy
+import operator
+import math
+import datetime
+import time
+import sys
+from collections import deque, defaultdict
+from itertools import groupby
+from Dijkstra_CIDA import *
+    #To get shortest path: shortest_path(graph, 'A', 'D')
+    
+###################################################################################
+# Input parameters to be entered in the cmd line
+input_topo_name = ='30n45s'
+ddcd_iteration_num = 4
+output_file_name = "30n45s_DDD3"
+###################################################################################
+
+start = time.time()
+
+### Graph Initiation
+graph = Graph()
+
+# Caulcate euc distance given two nodes
+
+def euc_distance(x, y):
+   dist = math.sqrt((y[1]-x[1])**2 + (y[0]-x[0])**2)
+   final_val = '%.3f' % dist
+   return final_val
+   
+nodes = {} # all nodes with X, Y coordinates
+
+with open(input_topo_name + '.node', 'r') as f:
+    for line in f.readlines():
+        comp = line.strip().split()
+        assert len(comp) == 4
+        nodes[comp[0]] = [float(comp[1]), float(comp[2])]
+        
+for node in nodes.keys():
+    graph.add_node(node)
+    
+span_node = {} # span id : both end nodes
+node_span = {} # both end nodes : span id
+span_wt = {} # span id: value: cost
+
+with open(input_topo_name + '.spans', 'r') as f:
+    for line in f.readlines():
+        comp = line.strip().split()
+        assert len(comp) == 8
+        # When span costs are 1:
+        # dist = 1
+        # When span costs are their euc distances:
+        dist = euc_distance(nodes[comp[1]], nodes[comp[2]])
+        graph.add_edge(comp[1], comp[2], float(dist))
+        span_node[comp[0]] = [comp[1], comp[2]]
+        node_span[comp[1] + " , " + comp[2]] = comp[0]
+        node_span[comp[2] + " , " + comp[1]] = comp[0]
+        span_wt[comp[0]] = float(dist)
+        
+
+### Enumerating set of pcycles/simple cycles
+    # Generate shortest path and associated pcycles using Dijkstra's Algorithm
+    # sindexer = {} # span id to pcycle id
+    
+def Enumerate_Start_Cycles(nodes, span_node, node_span):
+    pcycles = {}
+    new_id = 0
+    
+    for sid, spanner in span_node.items():
+        N1 = spanner[0]
+        N2 = spanner[1]
+        cost_shortest, path_shortest, cost_shortest2, path_shortest2 = double_shortestPath(graph, N1, N2)
+        if cost_shortest == sys.maxsize:
+            continue
+        cycle_span_info = {}
+        for node_start, node_end in zip(path_shortest[:-1], path_shortest[1:]):
+            span_ider = node_span[node_start + " , " + node_end]
+            cycle_span_info[span_ider] = 1
+        cycle_span_info[sid] = 1
+        cycle_id = "Cycle " + str(new_id) # new cycle id given
+        pcycles[cycle_id] = cycle_span_info
+        new_id += 1
+        if cost_shortest2 == sys.maxsize:
+            continue
+        cycle_span_info2 = {}
+        for node_start2, node_end2 in zip(path_shortest2[:-1], path_shortest2[1:]):
+            span_ider2 = node_span[node_start2 + " , " + node_end2]
+            cycle_span_info2[span_ider2] = 1
+        pcycle_info = {**cycle_span_info, **cycle_span_info2}
+        pcycle_info[sid] = 2
+        pcycle_id = "PCycle " + str(new_id) # new pcycle id given
+        pcycles[pcycle_id] = pcycle_info
+        new_id += 1
+    return pcycles
+    
+    
+# Stronger grow function where more shortest paths are found from span i
+
+def DDCD(input_cycle_set, graph, new_id2):
+    # new_id2 = 0
+    new_cycle_set = {}
+    
+    for sp in input_cycle_set.values():
+        sp_p = sp
+        remove_nodes = []
+        for i in sp_p.keys():
+            remove_nodes.append(span_node[i][0])
+            remove_nodes.append(span_node[i][1])
+        for ii, val in sp_p.items():
+            if val == 2:
+                continue
+            remove_node_set = set(remove_nodes)
+            Nor = span_node[ii][0]
+            Ndt = span_node[ii][1]
+            remove_node_set -= {Nor}
+            remove_node_set -= {Ndt}
+            remove_node_list = list(remove_node_set)
+            
+            if (Nor, Ndt) in graph.distances:
+                graph.distances[(Nor, Ndt)] = sys.maxsize
+                graph.distances[(Ndt, Nor)] = sys.maxsize
+            else:
+                raise ValueError("Not possible")
+                
+            while remove_node_list:
+                visited2, paths2 = dijkstra_2(graph, Nor, remove_node_list)
+                if not paths2 or visited2[Ndt] == sys.maxsize:
+                    break
+                full_path2 = deque()
+                _destination2 = paths2[Ndt]
+                
+                while _destination2 != Nor:
+                    full_path2.appendleft(_destination2)
+                    _destination2 = paths2[_destination2]
+                    
+                remove_node_list.extend(full_path2)
+                remove_node_list = list(set(remove_node_list))
+                full_path2.appendleft(Nor)
+                full_path2.append(Ndt)
+                shortPath2 = list(full_path2)
+                
+                cycle_span2 = {}
+                for node_st2, node_ed2 in zip(shortPath2[:-1], shortPath2[1:]):
+                    sp_ider2 = node_span[node_st2 + " , " + node_ed2]
+                    cycle_span2[sp_ider2] = 1
+                pcycle_inf = {**sp_p, **cycle_span2}
+                pcycle_inf[ii] = 2
+                pcyc_id = "PCycleGr " + str(new_id2) # new pcycle id given
+                new_cycle_set[pcyc_id] = pcycle_inf
+                new_id2 += 1
+                
+            if (Nor, Ndt) in graph.distances:
+                graph.distances[(Nor, Ndt)] = 1
+                graph.distances[(Ndt, Nor)] = 1
+            else:
+                raise ValueError("Not possible")
+    return new_cycle_set
+    
+    
+# Adding all straddling links info to all the enumerated cycles
+
+def Straddle_Link(cycles_set_update):
+    updated_cycle_set = cycles_set_update
+    
+    for cycle_key, sp_info in updated_cycle_set.items():
+        all_nodes_on_this_cycle = []
+        for ss, jj in sp_info.items():
+            if jj == 1:
+                node1_for_ss = span_node[ss][0]
+                node2_for_ss = span_node[ss][1]
+                all_nodes_on_this_cycle.append(node1_for_ss)
+                all_nodes_on_this_cycle.append(node2_for_ss)
+                
+        nodeset = set(all_nodes_on_this_cycle)
+        nodes_on_this_cycle = list(nodeset)
+        
+        for nn, dd in node_span.items():
+            nn_nodes = nn.split(' , ')
+            if nn_nodes[0] in nodes_on_this_cycle and nn_nodes[1] in nodes_on_this_cycle and dd not in sp_info:
+                sp_info[dd] = 2
+                updated_cycle_set[cycle_key] = sp_info
+    return updated_cycle_set
+    
+    
+# Remove redundant pCycles from a collection of enumerated pcycles
+
+def Remove_Redundancy_NEW(pcycles):
+    # all_cycles_list_key = list(pcycles.keys())
+    # all_cycles_list = list(pcycles.values())
+    
+    final_res = {}
+    pcycle_cost_sum = defaultdict(int) #key: pcycle's key; value: cost
+    
+    for pkey, val in pcycles.items():
+        for span_id, val_val in val.items():
+            if val_val == 1:
+                pcycle_cost_sum[pkey] += int(span_wt[span_id])
+                
+    keyfunc = lambda item: item[1]
+    for k_len, same_pkey_group in groupby(sorted(pcycle_cost_sum.items(), key=keyfunc), keyfunc):
+        lister = list(same_pkey_group)
+        
+        for ii, same_pkey1 in enumerate(lister):
+            flag_dup = False
+            item1 = set(spanid for spanid, ii in pcycles[same_pkey1[0]].items() if ii == 1)
+            for same_pkey2 in lister[ii+1:]:
+                item2 = set(spanid for spanid, ii in pcycles[same_pkey2[0]].items() if ii == 1)
+                if item1 == item2:
+                    flag_dup = True
+                    break
+            if not flag_dup:
+                final_res[same_pkey1[0]] = pcycles[same_pkey1[0]]
+    return final_res
+    
+    
+   
+### Main Function:
+
+now = datetime.datetime.now()
+print(now)
+
+pcycles = Enumerate_Start_Cycles(nodes, span_node, node_span)
+prev_limit = 0
+
+for ind in range(ddcd_iteration_num):
+    cy_id1 = 0
+    pcycles_from_Grow = DDCD(pcycles, graph, cy_id1)
+    pcycles_set = {**pcycles_from_Grow, **pcycles}
+    cy_id1 = cy_id1 + 1000000
+    
+    # Check and remove redundant cycles in the cycle set
+    pcycles = Remove_Redundancy_NEW(pcycles_set)
+    
+    if len(pcycles) == prev_limit:
+        print(f'No More New Cycles. Exit! at Iteration: {ind} | {len(pcycles)}')
+        break
+    prev_limit = len(pcycles)
+    
+    
+# Complete straddling link information on all pCycles
+
+updated_cycle_set = Straddle_Link(pcycles)
+
+
+### Verify all enumerated pCycles
+
+# pCycle_Verify(updated_cycle_set, span_node, node_span)
+
+
+### Verify and remove duplicate cycles
+
+updated_cycle_set = Remove_Redundancy_NEW(updated_cycle_set)
+the_end = time.time()
+print('Total Runtime = ' + str(the_end - start))
+
+
+### Print to .pcycle file
+
+text_file = open(str(output_file_name) + '.pcycle', 'w')
+for key, value in updated_cycle_set.items():
+    text_file.write(key + ": ")
+    for kk, tt in value.items():
+        text_file.write(kk + " " + str(tt) + " ")
+    text_file.write("\n")
+text_file.close()
+
+
+### Write a .eucost file to save all euclidean distances as span costs
+
+txt_file = open(str(output_file_name) + '.eucost', 'w')
+for kk, val in span_wt.items():
+    txt_file.write(kk + "\t" + str(val))
+    txt_file.write("\n")
+txt_file.close()
