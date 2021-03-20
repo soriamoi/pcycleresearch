@@ -1,0 +1,147 @@
+"""
+This file contains various generic and problem-specific shortest path methods that was used in my p-Cycle research studies, which includes:
+- Dijkstra's algorithm that finds one shortest path (function dijkstra() & shortest_path())
+- Dijkstra's algorithm applied twice to find two node-disjoint paths (function dijkstra_2() & double_shortestPath())
+"""
+
+
+from collections import defaultdict, deque
+import sys
+import copy
+
+
+class Graph(object):
+    def __init__(self):
+        self.nodes = set()
+        self.edges = defaultdict(list)
+        self.distances = {}
+    def add_node(self, value):
+        self.nodes.add(value)
+  
+    def add_edge(self, from_node, to_node, distance):
+        self.edges[from_node].append(to_node)
+        self.edges[to_node].append(from_node)
+        self.distances[(from_node, to_node)] = distance
+        self.distances[(to_node, from_node)] = distance
+
+
+def dijkstra(graph, initial):
+    visited = {initial: 0}
+    path = {}
+    nodes = set(graph.nodes)
+    
+    while nodes:
+        min_node = None
+        for node in nodes:
+            if node in visited:
+                if min_node is None:
+                    min_node = node
+                elif visited[node] < visited[min_node]:
+                    min_node = node
+        if min_node is None:
+            break
+            
+        nodes.remove(min_node)
+        current_weight = visited[min_node]
+        
+        for edge in graph.edges[min_node]:
+            try:
+                weight = current_weight + graph.distances[(min_node, edge)]
+            except:
+                raise ValueError("Sum error!")
+            if edge not in visited or weight < visited[edge]:
+                visited[edge] = weight
+                path[edge] = min_node
+    return visited, path
+    
+    
+def dijkstra_2(graph, initial, remove_nodes):
+    visited = {initial: 0}
+    path = {}
+    nodes = set(graph.nodes)
+    
+    for node_rm in remove_nodes:
+        nodes.remove(node_rm)
+    while nodes:
+        min_node = None
+        for node in nodes:
+            if node in visited:
+                if min_node is None:
+                    min_node = node
+                elif visited[node] < visited[min_node]:
+                    min_node = node
+        if min_node is None:
+            break
+            
+        nodes.remove(min_node)
+        current_weight = visited[min_node]
+        for edge in graph.edges[min_node]:
+            if edge in remove_nodes:
+                continue
+            try:
+                weight = current_weight + graph.distances[(min_node, edge)]
+            except:
+                raise ValueError("Sum error!")
+            if edge not in visited or weight < visited[edge]:
+                visited[edge] = weight
+                path[edge] = min_node
+                
+    return visited, path
+ 
+
+def shortest_path(graph, origin, destination):
+    if (origin, destination) in graph.distances:
+        graph.distances[(origin, destination)] = sys.maxsize
+        graph.distances[(destination, origin)] = sys.maxsize
+    else:
+        raise ValueError("Not possible")
+    visited, paths = dijkstra(graph, origin)
+    full_path = deque()
+    _destination = paths[destination]
+    
+    while _destination != origin:
+        full_path.appendleft(_destination)
+        _destination = paths[_destination]
+    full_path.appendleft(origin)
+    full_path.append(destination)
+    if (origin, destination) in graph.distances:
+        graph.distances[(origin, destination)] = 1
+        graph.distances[(destination, origin)] = 1
+    else:
+        raise ValueError("Not possible")
+    return visited[destination], list(full_path)
+    
+    
+def double_shortestPath(graph, origin, destination):
+    if (origin, destination) in graph.distances:
+        graph.distances[(origin, destination)] = sys.maxsize
+        graph.distances[(destination, origin)] = sys.maxsize
+    else:
+        raise ValueError("Not possible")
+        
+    visited, paths = dijkstra(graph, origin)
+    full_path = deque()
+    _destination = paths[destination]
+    
+    while _destination != origin:
+        full_path.appendleft(_destination)
+        _destination = paths[_destination]
+    full_path.appendleft(origin)
+    full_path.append(destination)
+    remove_nodes = list(full_path)[1:-1]
+    
+    visited2, paths2 = dijkstra_2(graph, origin, remove_nodes)
+    full_path2 = deque()
+    _destination2 = paths2[destination]
+    while _destination2 != origin:
+        full_path2.appendleft(_destination2)
+        _destination2 = paths2[_destination2]
+    full_path2.appendleft(origin)
+    full_path2.append(destination)
+    if (origin, destination) in graph.distances:
+        graph.distances[(origin, destination)] = 1
+        graph.distances[(destination, origin)] = 1
+    else:
+        raise ValueError("Not possible")
+        
+    return visited[destination], list(full_path), visited2[destination], list(full_path2)
