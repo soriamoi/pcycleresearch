@@ -1,0 +1,251 @@
+'''
+Python implementation of the CIDA (Capacitated Iterative Design Algorithm) algorithm from the following publication:
+J. Doucette, D. He, W. D. Grover, O. Yang, “Algorithmic Approaches for Efficient Enumeration of Candidate p-Cycles and Capacitated p-Cycle Network Design,” 
+Design of Reliable Communication Networks (DRCN 2003), Banff, AB, pp. 212-220, October 2003.
+
+This file also extend the original CIDA algorithm to a non-deterministic CIDA to allow further impletation of this algorithm in genetic algorithm
+'''
+
+import random
+import copy
+import operator
+import time
+
+start = time.time()
+
+# Open SOL file with detailed span information
+# extracts span cost, span id, and span working capacity from the sol file and save to a .spanft file
+
+spans = {}
+
+with open('USA.spanft', 'r') as f: 
+    for line in f.readlines():
+        comp = line.split()
+        # print(comp)
+        assert len(comp) == 4
+        # value 0 is cost, value 1 is working capacity
+        spans[comp[0]] = [float(comp[1]), float(comp[2])]
+
+# Open p-Cycles file which includes pcycle id and pcycle span information (span id, span straddling relationship as 1 or 0)
+
+pcycles = {}
+n = 0
+
+with open('USA_DDCD.pcycle', 'r') as f: 
+    for _line in f.readlines():
+        item = _line.split(':')
+        assert len(item) == 2
+        cycle_span_info = {}
+        span_info = item[1].split()
+        assert len(span_info) % 2 == 0
+        for n in range(len(span_info)):
+            if n % 2 == 0:
+                cycle_span_info[span_info[n]] = int(span_info[n+1])
+        pcycles[item[0]] = cycle_span_info
+
+# Open demand file 
+
+dmd = {} # all demands with origin node, destination node and # of demand
+input_filename4 = 'USA.dmd'
+
+with open(input_filename4, 'r') as f: 
+    for line in f.readlines():
+        comp = line.strip().split()
+        assert len(comp) == 8
+        # dmd = {demand_id: node1, node2, working_capacity}
+        dmd[comp[0]] = [comp[1], comp[2], float(comp[3])]
+
+# thie function calculates a pcycle's efficiency score(ew)
+# details regarding ew scores see Doucette et.al(2003) as noted at beginning of this file
+
+def calculate_ew(spans, cycle_value):
+    # return a ew value given a pcycle 
+    # calcuate (wi * xpi)/cost 
+    ew1 = 0
+    ew2 = 0
+    for _k, _v in cycle_value.items():
+        wi = spans[_k][1]
+        spi = _v
+        ew1 = ew1 + wi * spi
+        if _v == 1:
+            ew2 = ew2 + spans[_k][0]
+    ew = ew1/ew2
+    return ew
+
+# Determinstic CIDA 
+# (implentation of the original CIDA algorithm as proposed in Doucette et.al(2003))
+
+def CIDA(spans, pcycles):
+    cycle_usage = {}  
+    for span_id in spans.keys():
+        while spans[span_id][1] > 0:
+            best_ew = 0
+            best_cycle_id = None
+            for cycle_key, cycle_value in pcycles.items():
+                ew = calculate_ew(spans, cycle_value)
+                if ew > best_ew:
+                    best_ew = ew
+                    best_cycle_id = cycle_key
+            if best_cycle_id not in cycle_usage:
+                cycle_usage[best_cycle_id] = 1
+            else:
+                cycle_usage[best_cycle_id] = cycle_usage[best_cycle_id] + 1
+            for key, value in pcycles[best_cycle_id].items():
+                if value == 1:
+                    spans[key][1] = spans[key][1] - 1
+                    if spans[key][1] < 0:
+                        spans[key][1] = 0
+            for key, value in pcycles[best_cycle_id].items():
+                if value == 2:
+                    spans[key][1] = spans[key][1] - 2
+                    if spans[key][1] < 0:
+                        spans[key][1] = 0
+    return cycle_usage
+
+# Non-deterministic CIDA by random probabilities
+# This CIDA implementation returns a different result at each execution
+
+def pick_cycle_by_probs(spans, pcycles):
+    pool = {}
+    for cycle_key, cycle_value in pcycles.items():
+        ew = calculate_ew(spans, cycle_value)
+        pool[cycle_key] = ew
+    sorted_pool = sorted(pool.items(), key=lambda x: x[1], reverse=True)
+    top_ew_scores = []
+    top_cycle_keys = []
+    # initial value
+    importance_score = 10000
+    for key, _ in sorted_pool:
+        top_ew_scores.append(importance_score)
+        top_cycle_keys.append(key)
+        # discount weighting
+        importance_score = importance_score / 2
+    total_sum = sum(top_ew_scores)
+    normalized_probs = [float(item / total_sum) for item in top_ew_scores]
+    res = random.choices(population=top_cycle_keys, weights=normalized_probs, k=1)
+    return res[0]
+
+def CIDA_pick_by_probs(spans, pcycles):
+    cycle_usage = {} 
+    for span_id in spans.keys():
+        while spans[span_id][1] > 0:
+            best_cycle_id = None
+            # Random Select Best Cycle By Probs
+            best_cycle_id = pick_cycle_by_probs(spans, pcycles)
+            if best_cycle_id not in cycle_usage:
+                cycle_usage[best_cycle_id] = 1
+            else:
+                cycle_usage[best_cycle_id] = cycle_usage[best_cycle_id] + 1
+            for key, value in pcycles[best_cycle_id].items():
+                if value == 1:
+                    spans[key][1] = spans[key][1] - 1
+                    if spans[key][1] < 0:
+                        spans[key][1] = 0
+            for key, value in pcycles[best_cycle_id].items():
+                if value == 2:
+                    spans[key][1] = spans[key][1] - 2
+                    if spans[key][1] < 0:
+                        spans[key][1] = 0
+    return cycle_usage
+
+
+#############################################################################
+############   The following is for GA initial population   #################
+#############################################################################
+
+# Deterministic:
+# init_pop_member = CIDA(spans, pcycles)
+
+# Non-Deterministic - Random pick by probability:
+# init_pop_member = CIDA_random_pick_by_probs(spans, pcycles)
+
+def initial_population(popSize, pcycles):
+    init_population = []
+    for _ in range(popSize):
+        spans_copy = copy.deepcopy(spans)
+        init_pop_member = CIDA_pick_by_probs(spans_copy, pcycles)
+        if init_pop_member not in init_population:
+            init_population.append(init_pop_member)
+    return init_population
+
+def calculate_p_cost(spans, pcycles):
+    pcycle_costs = {}
+    for k,v in pcycles.items():
+        pcycle_cost = 0
+        for kkk,vvv in v.items():
+            if vvv == 1:
+                _cost = int(spans[kkk][0])
+                pcycle_cost = pcycle_cost + _cost
+        pcycle_costs[k] = pcycle_cost
+    return pcycle_costs
+
+def calculate_fitness_cost(pcycle_costs, individual):
+    ind_cost = 0
+    for p_key, _usage in individual.items():
+        cost_p = pcycle_costs[p_key]
+        ind_cost += cost_p * _usage
+    return ind_cost
+
+def rankCost(pcycle_costs, population):
+    fitness_results = {}
+    for i in range(0, len(population)):
+        fitness_results[i] = int(calculate_fitness_cost(pcycle_costs, population[i]))
+    rank_pop = sorted(fitness_results.items(), key = operator.itemgetter(1))
+    ranked_pop = [population[item[0]] for item in rank_pop]
+    ranked_cost = [item[1] for item in rank_pop]
+    return ranked_pop, ranked_cost
+
+## Main Function
+# Comment off the function that is not going to be tested 
+# in this case, the non-deterministrc CIDA is commented off so the result will be CIDA result
+    
+# Deterministic CIDA:
+span_copy = copy.deepcopy(spans)
+ind_cida = CIDA(span_copy, pcycles)
+ind_costs = calculate_p_cost(span_copy, pcycles)
+ind_cost = calculate_fitness_cost(ind_costs, ind_cida)
+
+'''
+# Non-Deterministic CIDA:
+init_pop = initial_population(100, pcycles)
+ind_costs = calculate_p_cost(spans, pcycles)
+pop_ranked, pop_scores = rankCost(ind_costs, init_pop)
+'''
+
+the_end = time.time()
+print(ind_cida)
+print('Total Cost = '+ str(ind_cost))
+print('Total Runtime =' + str(the_end - start))
+
+
+##########################################################################
+########   Calculate pcycle set SC, WC, capacity redundancy   ############
+##########################################################################
+
+ind_sc = 0
+
+# Calculate p-cycle spare capacity
+
+def pcycle_spare_capacity(spans, cycle_val):
+    pcycle_sc_score = 0
+    for kk, vv in cycle_val.items():
+        if vv == 1:
+            pcycle_sc_score += 1
+    return pcycle_sc_score
+for cy_id, cy_use in ind_cida.items():
+    cycle_sc = pcycle_spare_capacity(spans, pcycles[cy_id])
+    ind_sc = ind_sc + cycle_sc * cy_use
+
+# Calculate p-cycle working capacity
+
+def pcycle_work_capacity(spans):
+    pcycle_wc_score = 0
+    for dd, comp in spans.items():
+        pcycle_wc_score += comp[1]
+    return pcycle_wc_score    
+ind_wc = pcycle_work_capacity(spans)
+
+    
+print('Total Spare Capacity = '+ str(ind_sc))
+print('Total Working Capacity = '+ str(ind_wc))
+print('Redundancy = ' "{0:.2f}%".format(ind_sc/ind_wc * 100))
