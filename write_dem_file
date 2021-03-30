@@ -1,0 +1,49 @@
+"""
+Created on Thu Jun  6 22:37:34 2019
+@author: tiange1
+"""
+        
+import os
+import sys
+import random
+import datetime
+
+now = datetime.datetime.now()
+curret_date = str(now)
+
+input_demand_info = []
+
+test_network = '10n24s'
+
+# read an existing network .dem file in a different format
+
+with open(test_network + '.dem','r') as nn:
+    for lines in nn:
+        inf = lines.split()
+        assert len(inf) == 4
+        input_demand_info.append(inf)
+input_dem_info = input_demand_info[1:]
+# print(input_dem_info) 
+       
+# write a demand file into a desirable format
+'''
+D1	N1	N2	30	R1	inf	inf	0
+'''
+
+output_dem_file = test_network +'1' + '.dem'
+
+with open(output_dem_file, 'w') as ddd:
+    ddd.write("NAME:" + test_network + "\n")
+    ddd.write("DATE MODIFIED:" + curret_date + "\n")
+    ddd.write("MODIFIED BY: Alice Shi\n")
+    ddd.write("  \n")
+    ddd.write("DEMAND\tO\tD\tNBUNITS\tRESTCLASS\tHOPLIM\tDISTLIM\tMAXOUTAGE\n")
+
+    for ii in range(0, len(input_dem_info)):
+        dem_id = input_dem_info[ii][0]
+        node1 = input_dem_info[ii][1]
+        node2 = input_dem_info[ii][2]
+        dem_weight = input_dem_info[ii][3]
+
+        dem_info = str(dem_id) + "\t" + str(node1) + "\t" + str(node2) + "\t" + str(dem_weight) + "\t" + "R" + str(ii+1) + "\t" + "inf" + "\t" + "inf" + "\t" + str(ii) + "\n"
+        ddd.write(dem_info)
