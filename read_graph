@@ -1,0 +1,46 @@
+import networkx as nx
+import matplotlib as plt
+import math
+
+# Calcuate euclidean distances given two nodes
+def euc_distance(x, y):
+   dist = math.sqrt((y[1]-x[1])**2 + (y[0]-x[0])**2)
+   return dist
+
+# Input to nextworkx must be a list
+# each item must be a tuple
+# each tuple has 3 components: 
+# ('N1', 'N5', 0.9)
+
+input_netx = []
+
+# Open node file: a dictionary
+# Key: 'N1' -> Value: (x, y)
+# The .node files here are text files with each line being 'node_ID    x_coor   y_coor   noed_size'
+
+nodes = {}
+with open('USA.node', 'r') as f:
+   for line in f.readlines():
+       comp = line.split()
+       assert len(comp) == 4
+       nodes[comp[0]] = (float(comp[1]), float(comp[2]))
+
+# Open span file
+# The .span files here are text files with each line having 8 items
+# for this implementation here, only position 1(origin) and 2(destination) are used here
+
+with open('USA.spans', 'r') as f:
+   for _line in f.readlines():
+       item = _line.split()
+       assert len(item) == 8
+       distance = euc_distance(nodes[item[1]], nodes[item[2]])
+       span_tuple = (item[1], item[2], distance)
+       input_netx.append(span_tuple)
+
+# Print graph
+G = nx.Graph()
+G.add_weighted_edges_from(input_netx)
+print(nx.dijkstra_path(G, 'N1', 'N7'))
+
+# for i in input_netx:
+#    print(nx.dijkstra_path(G, i[0], i[1]))
