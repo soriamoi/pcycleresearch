@@ -1,0 +1,58 @@
+# The following writes a topology file (.top) for our pCycle implementation
+
+import os
+import sys
+import random
+import datetime
+
+now = datetime.datetime.now()
+curret_date = str(now)
+
+input_node_info = []
+input_span_info = []
+
+test_network = '10n24s'
+
+# read topology information from an existing node file that looks like:
+# node_id   x_coord   y_coord
+# extract the info and save to a new list of nodes
+
+with open(test_network + '.node','r') as n:
+    for lines in n:
+        info = lines.split()
+        assert len(info) == 3
+        input_node_info.append(info)
+
+# read topology information from an existing span file
+# extract the info and save to a new list of spans
+
+with open(test_network + '.spans', 'r') as s:
+   for _line in s.readlines():
+       item = _line.split()
+       assert len(item) == 7
+       input_span_info.append(item)
+
+#######################################################
+# write new topology file
+
+# 1. write node info of the top file
+output_top_file = test_network + '.top'
+with open(output_top_file, 'w') as fff:
+    fff.write("NAME:" + test_network + "\n")
+    fff.write("DATE MODIFIED:" + curret_date + "\n")
+    fff.write("MODIFIED BY: Alice Shi\n")
+    fff.write("  \n")
+    fff.write("NODE\tX\tY\tSIZE\n") 
+
+    for i in range(0, len(input_node_info)):
+        str_node = str(input_node_info[i][0]) + "\t" + str(input_node_info[i][1]) + "\t" + str(input_node_info[i][2]) + "\t1"  + "\n"
+        fff.write(str_node)
+ 
+ # 2. write span info of the top file   
+    fff.write("  \n")
+    span_info = "SPAN\tO\tD\tLENGTH\tMTBF\tMTTR\tFIXEDCOST\tUNITCOST\n"
+    fff.write(span_info)
+
+    for ii in range(0, len(input_span_info)):
+        str_span = str(input_span_info[ii][0]) + "\t" + str(input_span_info[ii][1]) + "\t" + str(input_span_info[ii][2]) + "\t1" + "\t0" + "\t0" + "\t0" + "\t1" + "\n"
+        fff.write(str_span)
