@@ -1,0 +1,347 @@
+'''
+This file contains implementation of the Grow and SP-Add algorithms proposed in the following publication:
+J. Doucette, D. He, W. D. Grover, O. Yang, “Algorithmic Approaches for Efficient Enumeration of Candidate p-Cycles and Capacitated p-Cycle Network Design,” 
+Design of Reliable Communication Networks (DRCN 2003), Banff, AB, pp. 212-220, October 2003.
+
+'''
+
+import math
+import datetime
+import time
+import sys
+from collections import deque, defaultdict
+from Dijkstra_CIDA import *
+    #To get shortest path: shortest_path(graph, 'A', 'D') 
+
+start = time.time()
+
+### Graph Initiation
+graph = Graph()
+
+# Caulcate euc distance given two nodes
+
+def euc_distance(x, y):
+   dist = math.sqrt((y[1]-x[1])**2 + (y[0]-x[0])**2)
+   return dist
+
+# Open .node and ,span files
+# extract node and span information and save to various dictionaries
+
+nodes = {} # all nodes with X, Y coordinates
+
+with open('USA.node', 'r') as f: 
+    for line in f.readlines():
+        comp = line.strip().split()
+        assert len(comp) == 4
+        nodes[comp[0]] = [float(comp[1]), float(comp[2])]
+for node in nodes.keys():
+    graph.add_node(node)
+    
+span_node = {} # span id : both end nodes
+node_span = {} # both end nodes : span id
+# span_ft = {} # span id: [cost, working capacity]
+
+with open('USA.spans', 'r') as f: 
+    for line in f.readlines():
+        comp = line.strip().split()
+        assert len(comp) == 8
+        # When span costs are 1:
+        dist = 1       
+        # When span costs are their euc distances:
+        # dist = euc_distance(nodes[comp[1]], nodes[comp[2]])
+        graph.add_edge(comp[1], comp[2], float(dist))       
+        span_node[comp[0]] = [comp[1], comp[2]]
+        node_span[comp[1] + " , " + comp[2]] = comp[0]
+        node_span[comp[2] + " , " + comp[1]] = comp[0]
+    
+    
+    
+### Enumerating set of pcycles/simple cycles
+    # Generate shortest path and associated pcycles using Dijkstra's Algorithm
+
+############################################################################################
+## The SLA algorithm is a cycle-enumeration method proposed in Doucette et.al.(DRCN 2003) ##
+## SLA means straddling link algorithm as proposed in Doucette et.al.(DRCN 2003)          ##
+## This is python implementation of the SLA algorithm                                     ##
+## Using sla algorithm to generate simple cycles/pcycles                                  ##
+############################################################################################
+
+    
+def Enumerate_SLA_Cycles(nodes, span_node, node_span):
+    pcycles = {}
+    new_id = 0
+    for sid, spanner in span_node.items():
+        N1 = spanner[0]
+        N2 = spanner[1]
+        cost_shortest, path_shortest, cost_shortest2, path_shortest2 = double_shortestPath(graph, N1, N2)
+        if cost_shortest == sys.maxsize or cost_shortest2 == sys.maxsize:
+            continue
+
+        cycle_span_info = {}
+        
+        for node_start, node_end in zip(path_shortest[:-1], path_shortest[1:]):
+            span_ider = node_span[node_start + " , " + node_end]
+            cycle_span_info[span_ider] = 1
+            
+        cycle_span_info[sid] = 1
+        # cycle_id = "Cycle " + str(new_id) # new cycle id given
+        # pcycles[cycle_id] = cycle_span_info
+        # new_id += 1
+        
+        cycle_span_info2 = {}
+        for node_start2, node_end2 in zip(path_shortest2[:-1], path_shortest2[1:]):
+            span_ider2 = node_span[node_start2 + " , " + node_end2]
+            cycle_span_info2[span_ider2] = 1
+        pcycle_info = {**cycle_span_info, **cycle_span_info2}
+        pcycle_info[sid] = 2
+        pcycle_id = "PCycle " + str(new_id) # new pcycle id given
+        pcycles[pcycle_id] = pcycle_info
+        new_id += 1
+    return pcycles
+
+
+################################################################################################
+## The SP-Add algorithm was a cycle-enumeration method proposed in Doucette et.al.(DRCN 2003) ##
+## This is python implementation of the SP-Add algorithm                                      ##
+## Using SP-Add algorithm to generate simple cycles/pcycles                                   ##
+################################################################################################
+
+
+def SP_Add(input_cycle_set, graph):
+    new_pcycle_set = {}
+    new_id0 = 0
+    for sp in input_cycle_set.values():
+        remove_nodes = []
+        for i in sp.keys():
+            remove_nodes.append(span_node[i][0])
+            remove_nodes.append(span_node[i][1])
+        for ii, val in sp.items():
+            if val == 2:
+                continue
+            remove_node_set = set(remove_nodes)
+            Nor = span_node[ii][0]
+            Ndt = span_node[ii][1]
+            remove_node_set -= {Nor}
+            remove_node_set -= {Ndt}
+            remove_node_list = list(remove_node_set)
+            
+            if (Nor, Ndt) in graph.distances:
+                graph.distances[(Nor, Ndt)] = sys.maxsize
+                graph.distances[(Ndt, Nor)] = sys.maxsize
+            else:
+                raise ValueError("Not possible")
+            visited2, paths2 = dijkstra_2(graph, Nor, remove_node_list)
+            full_path2 = deque()
+            _destination2 = paths2[Ndt]
+
+            while _destination2 != Nor:
+                full_path2.appendleft(_destination2)
+                _destination2 = paths2[_destination2]
+
+            full_path2.appendleft(Nor)
+            full_path2.append(Ndt)
+            shortPath2 = list(full_path2)
+
+            if (Nor, Ndt) in graph.distances:
+                graph.distances[(Nor, Ndt)] = 1
+                graph.distances[(Ndt, Nor)] = 1
+            else:
+                raise ValueError("Not possible")
+
+            if visited2[Ndt] == sys.maxsize:
+                continue
+            
+            cycle_span2 = {}
+            for node_st2, node_ed2 in zip(shortPath2[:-1], shortPath2[1:]):
+                sp_ider2 = node_span[node_st2 + " , " + node_ed2]
+                cycle_span2[sp_ider2] = 1
+            pcycle_inf = {**sp, **cycle_span2}
+            pcycle_inf[ii] = 2
+
+            pcyc_id = "PCycleAD " + str(new_id0) # new pcycle id given
+            # sindexer[sid] = pcycle_id
+            new_pcycle_set[pcyc_id] = pcycle_inf
+            new_id0 += 1
+            
+    return new_pcycle_set
+
+
+#############################################################################################
+## The Grow algorithm was a cycle-enumeration method proposed in Doucette et.al.(DRCN 2003) #
+## This is python implementation of the Grow algorithm                                      #
+## Using Grow algorithm to enumerate eligible pcycle                                        #
+#############################################################################################
+
+
+def Add_Grow(input_cycle_value, graph, cy_id1, new_gcycle_set):
+    sp_p = input_cycle_value
+    remove_nodes = []
+    for i in sp_p.keys():
+        remove_nodes.append(span_node[i][0])
+        remove_nodes.append(span_node[i][1])
+    for ii, val in sp_p.items():
+        if val == 2:
+            continue
+        remove_node_set = set(remove_nodes)
+        Nor = span_node[ii][0]
+        Ndt = span_node[ii][1]
+        remove_node_set -= {Nor}
+        remove_node_set -= {Ndt}
+        remove_node_list = list(remove_node_set)
+        if (Nor, Ndt) in graph.distances:
+            graph.distances[(Nor, Ndt)] = sys.maxsize
+            graph.distances[(Ndt, Nor)] = sys.maxsize
+        else:
+            raise ValueError("Not possible")
+        visited2, paths2 = dijkstra_2(graph, Nor, remove_node_list)
+        full_path2 = deque()
+        _destination2 = paths2[Ndt]
+
+        while _destination2 != Nor:
+            full_path2.appendleft(_destination2)
+            _destination2 = paths2[_destination2]
+
+        full_path2.appendleft(Nor)
+        full_path2.append(Ndt)
+        shortPath2 = list(full_path2)
+
+        if (Nor, Ndt) in graph.distances:
+            graph.distances[(Nor, Ndt)] = 1
+            graph.distances[(Ndt, Nor)] = 1
+        else:
+            raise ValueError("Not possible")
+
+        if visited2[Ndt] == sys.maxsize:
+            continue
+            
+        cycle_span2 = {}
+        for node_st2, node_ed2 in zip(shortPath2[:-1], shortPath2[1:]):
+            sp_ider2 = node_span[node_st2 + " , " + node_ed2]
+            cycle_span2[sp_ider2] = 1
+        pcycle_inf = {**sp_p, **cycle_span2}
+        pcycle_inf[ii] = 2
+
+        pcyc_id = "PCycleG " + str(cy_id1) # new pcycle id given
+        new_gcycle_set[pcyc_id] = pcycle_inf
+        cy_id1 += 1
+        new_gcycle_set = Add_Grow(pcycle_inf, graph, cy_id1, new_gcycle_set)
+        
+    return new_gcycle_set
+    
+    
+  
+# Adding all straddling links info to all the enumerated cycles
+# This steps checks all straddling links in the network
+# to make sure that all straddling links are accounted for and marked (checking any missed/unmarked straddling links)
+
+def Straddle_Link(cycles_set_update, graph):
+    updated_cycle_set = cycles_set_update
+    for _, sp_info in updated_cycle_set.items():
+        all_nodes_on_this_cycle = []
+        for ss, jj in sp_info.items():
+            if jj == 1:
+                node1_for_ss = span_node[ss][0]
+                node2_for_ss = span_node[ss][1]
+                all_nodes_on_this_cycle.append(node1_for_ss)
+                all_nodes_on_this_cycle.append(node2_for_ss)
+        nodeset = set(all_nodes_on_this_cycle)
+        nodes_on_this_cycle = list(nodeset)
+
+        for nn, dd in node_span.items():
+            nn_nodes = nn.split(' , ')
+            if nn_nodes[0] in nodes_on_this_cycle and nn_nodes[1] in nodes_on_this_cycle and dd not in sp_info:
+                sp_info[dd] = 2
+
+    return updated_cycle_set    
+
+'''
+# p-Cycle validity verification 
+# (Uncomment only when verifying results, not for normal production flow)
+
+def pCycle_Verify(input_cycle_set, span_node, node_span): 
+    for cycle_span in input_cycle_set.values():
+        counter = defaultdict(int)
+        for ky, val in cycle_span.items():
+            if val == 1:
+                N1 = span_node[ky][0]
+                N2 = span_node[ky][1]
+                counter[N1] += 1
+                counter[N2] += 1
+        for item_cc in counter.values():
+            if item_cc != 2:
+                print(cycle_span)
+                print(counter)
+                raise ValueError("ERROR!!!")
+    print("Pass!!!")
+'''
+
+#####################
+### Main Function ###
+#####################
+
+now = datetime.datetime.now()
+print(now)
+
+## Step one: SLA initial short pcycles
+
+pcycles0 = Enumerate_SLA_Cycles(nodes, span_node, node_span)
+pcycles = Straddle_Link(pcycles0, graph)
+
+## Step two: SP-Add to produce intermediate pcycle set
+
+add_pcycles0 = SP_Add(pcycles, graph)
+add_pcycles = Straddle_Link(add_pcycles0, graph)
+
+## Step three: Grow algorithm to produce various sizes of pcycles
+
+pcycles_from_Grow = {}
+cy_id1 = 0
+for sp_inf in add_pcycles.values():
+    pcycles_from_Grow = Add_Grow(sp_inf, graph, cy_id1, pcycles_from_Grow)
+    
+      
+## Save all short pcycles, intermediate pcycles, and larger pcycles
+
+pcycles_set = {**pcycles_from_Grow, **add_pcycles, **pcycles}
+
+'''
+## Verify and complete straddling link information on all pCycles
+updated_cycle_set = Straddle_Link(pcycles_set, graph) 
+'''
+
+## Step four: Enumerate simple cycles: Generate shortest path given all spans
+new_id3 = 0
+for sid, spanner in span_node.items():
+    N1 = spanner[0]
+    N2 = spanner[1]
+    cost_shortest, path_shortest = shortest_path(graph, N1, N2)
+    if cost_shortest == sys.maxsize:
+        raise ValueError('Impossible, No shortest path found!')
+    cycle_span_info3 = {}
+    for node_start, node_end in zip(path_shortest[:-1], path_shortest[1:]):
+        span_ider = node_span[node_start + " , " + node_end]
+        cycle_span_info3[span_ider] = 1
+    cycle_span_info3[sid] = 1
+    cycle_id = "CYL" + str(new_id3) # new pcycle id given
+    updated_cycle_set[cycle_id] = cycle_span_info3
+    new_id3 += 1
+
+## Verify all enumerated pCycles
+# (Uncomment only when verifying results, not for normal production flow)
+
+pCycle_Verify(updated_cycle_set, span_node, node_span)
+
+## Calculate runtime
+
+the_end = time.time()
+print('Total Runtime =' + str(the_end - start))
+
+## Print to .pcycle file
+
+text_file = open("USA_.pcycle", "w")
+for key, value in updated_cycle_set.items():
+    text_file.write(key + ": ")
+    for kk, tt in value.items():
+        text_file.write(kk + " " + str(tt) + " ")
+    text_file.write("\n")
+text_file.close()
