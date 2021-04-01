@@ -1,0 +1,1086 @@
+## THIS IS THE ENTIRE GA-SCA PYTHON CODE ##
+
+import random
+import time
+import copy
+import operator
+import math
+import datetime
+import sys
+from Dijkstra_CIDA import *
+import cProfile
+
+# Input parameters to be entered in the cmd line
+topo_name = 'USA'
+pcycle_file = 'USA.pcycle'
+Selection_Method = 'select_tournament'
+Crossover_Type = 'two_point'
+Mutation_Type = 'mutate1'
+input_pop = 50
+input_cr = 0.35
+input_mr = 0.2
+output_pcycle = 'TestUSA.pcycle'
+
+
+# Graph Initiation
+
+graph = Graph()
+
+
+# global mutation ID
+
+new_id_mut = 0
+
+
+# Caulcate euc distance given two nodes
+
+def euc_distance(x, y):
+   dist = math.sqrt((y[1]-x[1])**2 + (y[0]-x[0])**2)
+   return dist
+   
+   
+# All node information
+nodes = {}
+
+with open(topo_name + '.node', 'r') as f:
+    for line in f.readlines():
+        comp = line.strip().split()
+        assert len(comp) == 4
+        nodes[comp[0]] = [float(comp[1]), float(comp[2])]
+        
+for node in nodes.keys():
+    graph.add_node(node)
+    
+    
+# All span-node correlations
+span_node = {}
+node_span = {}
+span_dist = {}
+
+with open(topo_name + '.spans', 'r') as f:
+    for line in f.readlines():
+        comp = line.strip().split()
+        assert len(comp) == 8
+        # When span costs are their euc distances:
+        dist = euc_distance(nodes[comp[1]], nodes[comp[2]])
+        span_dist[comp[0]] = float(format(dist, '.3f'))
+        graph.add_edge(comp[1], comp[2], float(format(dist, '.3f'))) # comp[1] = origin, comp[2]= destination, float(dist) = span weight or cost
+        
+        span_node[comp[0]] = [comp[1], comp[2]]
+        node_span[comp[1] + " , " + comp[2]] = comp[0]
+        node_span[comp[2] + " , " + comp[1]] = comp[0]
+        
+        
+# Open .SOL file with detailed span information
+span_ft = {}
+
+with open(topo_name + '.eucspanft', 'r') as f:
+    for line in f.readlines():
+        comp = line.split()
+        assert len(comp) == 4
+        # span_ft[comp[0]] = [float(comp[1]), float(comp[2])]
+        span_ft[comp[0]] = [float(span_dist[comp[0]]), float(comp[2])]
+        
+spans = span_ft
+
+
+# Open p-cycles file generated from SOL file 
+
+pcycles = {}
+n = 0
+
+with open(pcycle_file, 'r') as f:
+    for _line in f.readlines():
+        item = _line.split(':')
+        assert len(item) == 2
+        cycle_span_info = {}
+        span_info = item[1].split()
+        assert len(span_info) % 2 == 0
+        
+        for n in range(len(span_info)):
+            if n % 2 == 0:
+                cycle_span_info[span_info[n]] = int(span_info[n+1])
+        pcycles[item[0]] = cycle_span_info
+        
+def calculate_ew(spans, cycle_value):
+    # return a ew value given a pcycle
+    # calcuate (wi * xpi)/cost
+    ew1 = 0
+    ew2 = 0
+    
+    for _k, _v in cycle_value.items():
+        wi = spans[_k][1]
+        spi = _v
+        ew1 = ew1 + wi * spi
+        if _v == 1:
+            ew2 = ew2 + spans[_k][0]
+    ew = ew1/ew2
+return ew
+
+def index_sspans_from_pcycles(spans, pcycles):
+    span_pcycle_indexer = {}
+    
+    # Step 1 Calculate ew score for each pcycle
+    pcycle_ew_dict = {}
+    for p_id, p_val in pcycles.items():
+        pcycle_ew_dict[p_id] = calculate_ew(spans, p_val)
+        
+    # Step 2 Get span_id's pcycle list
+    for span_id in spans.keys():
+        for key, value in pcycles.items():
+            if span_id in value:
+                if span_id not in span_pcycle_indexer:
+                    span_pcycle_indexer[span_id] = [(key, pcycle_ew_dict[key])]
+                else:
+                    span_pcycle_indexer[span_id].append((key, pcycle_ew_dict[key]))
+                    
+    # Step 3 Sort pcycle list for each span
+    for span_id in span_pcycle_indexer.keys()  # e is a tuple: (key, pcycle_ew_dict[key])
+        span_pcycle_indexer[span_id] = sorted(span_pcycle_indexer[span_id], key=lambda e: e[1], reverse=True)
+    return span_pcycle_indexer, pcycle_ew_dict
+    
+span_pcycle_indexer, pcycle_ew_dict = index_spans_from_pcycles(spans, pcycles)
+
+def index_straddle_from_pcycles(spans, pcycles):
+    straddle_pcycle_indexer = {}
+    
+    # Step 1 Calculate ew score for each pcycle
+    pcycle_ew_dict = {}
+    for p_id, p_val in pcycles.items():
+        pcycle_ew_dict[p_id] = calculate_ew(spans, p_val)
+        
+    # Step 2 Get span_id's pcycle list
+    for span_id in spans.keys():
+        for key, value in pcycles.items():
+            if span_id in value and value[span_id] == 2:
+                if span_id not in straddle_pcycle_indexer:
+                    straddle_pcycle_indexer[span_id] = [(key, pcycle_ew_dict[key])]
+                else:
+                    straddle_pcycle_indexer[span_id].append((key, pcycle_ew_dict[key]))
+                    
+    # Step 3 Sort pcycle list for each span
+    for span_id in straddle_pcycle_indexer.keys():
+        straddle_pcycle_indexer[span_id] = sorted(straddle_pcycle_indexer[span_id], key=lambda e:e[1], reverse=True)
+    return straddle_pcycle_indexer, pcycle_ew_dict
+    
+straddle_pcycle_indexer, pcycle_ew2_dict = index_straddle_from_pcycles(spans, pcycles)
+
+def calculate_p_cost(spans, pcycles):
+    pcycle_costs = {}
+    
+    for k,v in pcycles.items():
+        pcycle_cost = 0
+        for kkk,vvv in v.items():
+            if vvv == 1:
+                _cost = int(spans[kkk][0])
+                pcycle_cost = pcycle_cost + _cost
+        pcycle_costs[k] = pcycle_cost
+    return pcycle_costs
+    
+pcycle_costs_global = calculate_p_cost(spans, pcycles)
+
+
+## Methods for Repair Genome: ##
+
+# Minimum cycles for Repair Genome
+
+def Min_Cycle_Repair(spans, pcycles, span_node, node_span):
+    cycle_usage = {}
+    new_id2 = 0
+    
+    for span_id in spans.keys():
+        while spans[span_id][1] > 0:
+            best_cycle_id = None
+            N0 = span_node[span_id][0]
+            N1 = span_node[span_id][1]
+            cost_shortest1, path_shortest1 = shortest_path(graph, N0, N1)
+            if cost_shortest1 == sys.maxsize:
+                raise ValueError('Impossible, No shortest path found!')
+                
+            cycle_span_info = {}
+            for node_start1, node_end1 in zip(path_shortest1[:-1], path_shortest1[1:]):
+                span_ider1 = node_span[node_start1 + " , " + node_end1]
+                cycle_span_info[span_ider1] = 1
+            cycle_span_info[span_id] = 1
+            ## Straddle checker : path=2
+            
+            all_nodes_on_this_cycle = []
+            for ss, jj in cycle_span_info.items():
+                if jj == 1:
+                    node1_for_ss = span_node[ss][0]
+                    node2_for_ss = span_node[ss][1]
+                    all_nodes_on_this_cycle.append(node1_for_ss)
+                    all_nodes_on_this_cycle.append(node2_for_ss)
+            nodeset = set(all_nodes_on_this_cycle)
+            nodes_on_this_cycle = list(nodeset)
+            
+            for nn, dd in node_span.items():
+                nn_nodes = nn.split(' , ')
+                if nn_nodes[0] in nodes_on_this_cycle and nn_nodes[1] in nodes_on_this_cycle and dd not in cycle_span_info:
+                    cycle_span_info[dd] = 2
+                    
+            ## Check if cycle_Span_info is a duplicate of a cycle in pcycles
+            flagger = False
+            for key, val in pcycles.items():
+                if cycle_span_info == val:
+                    if key not in cycle_usage:
+                        cycle_usage[key] = 1
+                    else:
+                        cycle_usage[key] = cycle_usage[key] + 1
+                    flagger = True
+                    break
+            if not flagger:
+                new_id2 = new_id2 + 1
+                best_cycle_id = "Rcyc " + str(new_id2) # new pcycle id given
+                cycle_usage[best_cycle_id] = 1
+                pcycles[best_cycle_id] = cycle_span_info
+                
+            for key, value in cycle_span_info.items():
+                if value == 1:
+                    spans[key][1] = spans[key][1] - 1
+                    if spans[key][1] < 0:
+                        spans[key][1] = 0
+                        
+            for key, value in cycle_span_info.items():
+                if value == 2:
+                    spans[key][1] = spans[key][1] - 2
+                    if spans[key][1] < 0:
+                        spans[key][1] = 0
+                        
+    return cycle_usage, pcycles
+    
+    
+# Max_Overlap for Repair Genome
+
+def Max_Overlap_Cost(spans, pcycles):
+    cycle_usage = {}
+    
+    # counter to collect pid
+    while True:
+        pcycle_hit = {}
+        max_pid_cc = 0
+        max_pid = "-1"
+        min_cost_pcycle = sys.maxsize
+        
+        for span_id in spans.keys():
+            if spans[span_id][1] > 0:
+                straddle_flag = False
+                if span_id in straddle_pcycle_indexer:
+                    pcycle_list_with_this_spanid = straddle_pcycle_indexer[span_id]
+                    straddle_flag = True
+                else:
+                    pcycle_list_with_this_spanid = span_pcycle_indexer[span_id]
+                for pid, _ in pcycle_list_with_this_spanid:
+                    if pid not in pcycle_hit and straddle_flag:
+                        pcycle_hit[pid] = [pid, 1, 0]
+                    elif pid not in pcycle_hit and not straddle_flag:
+                        pcycle_hit[pid] = [pid, 0, 1]
+                    elif pid in pcycle_hit and straddle_flag:
+                        pcycle_hit[pid][1] += 1
+                    else:
+                        pcycle_hit[pid][2] += 1
+                    if pcycle_hit[pid][1] > max_pid_cc:
+                        max_pid_cc = pcycle_hit[pid][1]
+                        min_cost_pcycle = pcycle_costs_global[pid]
+                        max_pid = pid
+                    elif pcycle_hit[pid][1] == max_pid_cc:
+                        if pcycle_costs_global[pid] < min_cost_pcycle:
+        if max_pid == "-1":
+            break
+
+        best_cycle_id = max_pid # deterministic
+        
+        if best_cycle_id not in cycle_usage:
+            cycle_usage[best_cycle_id] = 1
+        else:
+            cycle_usage[best_cycle_id] = cycle_usage[best_cycle_id] + 1
+            
+        for key, value in pcycles[best_cycle_id].items():
+            if value == 1:
+                spans[key][1] = spans[key][1] - 1
+                if spans[key][1] < 0:
+                    spans[key][1] = 0
+            elif value == 2:
+                spans[key][1] = spans[key][1] - 2
+                if spans[key][1] < 0:
+                    spans[key][1] = 0
+    return cycle_usage, pcycles
+    
+    
+## Methods for generating initial population: #
+
+# Picking a random cycle
+
+def pick_random_cycle(pcycles):
+    cycle_keys = list(pcycles.keys())
+    cycle_picked = random.choices(population=cycle_keys, weights=None, k=1)
+    return cycle_picked[0]
+    
+# 1. Non-deterministic CIDA: random picks by probs
+# Pick a Cycle from a pool
+
+def pick_cycle_by_probs(spans, pcycles):
+    pool = {}
+    for cycle_key, cycle_value in pcycles.items():
+        ew = calculate_ew(spans, cycle_value)
+        pool[cycle_key] = ew
+    sorted_pool = sorted(pool.items(), key=lambda x: x[1], reverse=True)
+    top_ew_scores = []
+    top_cycle_keys = []
+    # initial value
+    importance_score = 10000
+    for key, _ in sorted_pool:
+        top_ew_scores.append(importance_score)
+        top_cycle_keys.append(key)
+        # discount weighting
+        importance_score = importance_score / 2
+        
+    total_sum = sum(top_ew_scores)
+    normalized_probs = [float(item / total_sum) for item in top_ew_scores]
+    res = random.choices(population=top_cycle_keys, weights=normalized_probs, k=1)
+    return res[0]
+    
+def CIDA_pick_by_probs(spans, pcycles):
+    cycle_usage = {}
+    
+    for span_id in spans.keys():
+        while spans[span_id][1] > 0:
+            best_cycle_id = None
+            # Random Select Best Cycle By Probs
+            best_cycle_id = pick_cycle_by_probs(spans, pcycles)
+            if best_cycle_id not in cycle_usage:
+                cycle_usage[best_cycle_id] = 1
+            else:
+                cycle_usage[best_cycle_id] = cycle_usage[best_cycle_id] + 1
+            for key, value in pcycles[best_cycle_id].items():
+                if value == 1:
+                    spans[key][1] = spans[key][1] - 1
+                    if spans[key][1] < 0:
+                        spans[key][1] = 0
+            for key, value in pcycles[best_cycle_id].items():
+                if value == 2:
+                    spans[key][1] = spans[key][1] - 2
+                    if spans[key][1] < 0:
+return cycle_usage
+
+
+##Generate Initial Population ##
+
+# Deterministic:
+    # init_pop_member = CIDA(spans, pcycles)
+    
+# Non-Deterministic - Random pick by probability:
+    # init_pop_member = CIDA_pick_by_probs(spans, pcycles)
+    
+# Generate initial population: a list of dictionaries
+    # each dictionary is an individual (key:value = pcycle_id : pcycle_num_usage) that provides full pcycle protection to the network
+    
+def initial_population(popSize, pcycles):
+    init_population = []
+    
+    for _ in range(popSize):
+        spans_copy = copy.deepcopy(spans)
+        init_pop_member = CIDA_pick_by_probs(spans_copy, pcycles)
+        if init_pop_member not in init_population:
+            init_population.append(init_pop_member)
+    return init_population   
+    
+    
+### START OF GENETIC ALGORITHM ###
+
+start = time.time()
+
+## FITNESS FUNCTION:
+    # [minimum] cost of each individual (init_pop_member)
+    
+def calculate_fitness_cost(pcycle_costs, individual):
+    ind_cost = 0
+    for p_key, _usage in individual.items():
+        cost_p = pcycle_costs[p_key]
+        ind_cost += cost_p * _usage
+    return ind_cost
+    
+def rankCost(pcycle_costs, population):
+    fitness_results = {}
+    
+    for i in range(0, len(population)):
+        fitness_results[i] = int(calculate_fitness_cost(pcycle_costs, population[i]))
+    rank_pop = sorted(fitness_results.items(), key = operator.itemgetter(1))
+    ranked_pop = [population[item[0]] for item in rank_pop]
+    ranked_cost = [item[1] for item in rank_pop]
+    return ranked_pop, ranked_cost
+    
+    
+## SELECTION METHODS:
+
+def select_roulette(ranked_pop, pcycle_costs):
+    cost_scores = []
+    score_factor = 1200 # not very necessary but does not affect results
+    
+    for ccc in ranked_pop:
+        cycle_cost = calculate_fitness_cost(pcycle_costs, ccc)
+        cycle_score = (score_factor/cycle_cost)**2
+        cost_scores.append(cycle_score)
+    total_sum = sum(cost_scores)
+    normalized_probs = [float(item / total_sum) for item in cost_scores]
+    select_parent = random.choices(population=ranked_pop, weights=normalized_probs, k=1)
+    return select_parent[0]
+    
+def select_tournament(ranked_pop, pcycle_costs):
+    select_ind = random.choices(population=ranked_pop, weights=None, k=10)
+    ranked_ind, _ = rankCost(pcycle_costs, select_ind)
+    selected_parent = ranked_ind[0]
+    return selected_parent
+    
+def select_tournament_adp(ranked_pop, pcycle_costs, popSize):
+    select_ind = random.choices(population=ranked_pop, weights=None, k=int(popSize*0.05))
+    ranked_ind, _ = rankCost(pcycle_costs, select_ind)
+    selected_parent = ranked_ind[0]
+    return selected_parent
+    
+def select_random(ranked_pop):
+    random_index = random.randint(0,len(ranked_pop)-1)
+    random_parent = ranked_pop[random_index]
+    return random_parent
+    
+    
+# REPAIR MECHANISM:
+
+def repair_genome_cross(child_genome, spans, pcycles):
+    unprotected_span = {}
+    protected_spans = {}
+    
+    for k, usage in child_genome.items():
+        for _k in pcycles[k].keys():
+            if _k not in protected_spans:
+                if pcycles[k][_k] == 1:
+                    protected_spans[_k] = usage
+                else:
+                    protected_spans[_k] = 2*usage
+            else:
+                if pcycles[k][_k] == 1:
+                    protected_spans[_k] += usage
+                else:
+                    protected_spans[_k] += 2*usage
+                    
+    for span in spans.keys():
+        if span not in protected_spans.keys():
+            unprotected_span[span] = int(spans[span][1])
+        else:
+            if spans[span][1] > protected_spans[span]:
+                unprotected_span[span] = int(spans[span][1]) - int(protected_spans[span])
+                
+    spans_merge = {}
+    for kkey, vval in unprotected_span.items():
+        spans_merge[kkey] = [spans[kkey][0], vval]
+    for kkey, vval in spans.items():
+        if kkey not in spans_merge:
+            spans_merge[kkey] = [spans[kkey][0], 0]
+    ## 3. Repair by Max_Match for cross-over operator:
+    compensation_cycle, _ = Max_Overlap_Cost(spans_merge, pcycles)
+    repaired_child = { k: child_genome.get(k, 0) + compensation_cycle.get(k, 0) for k in set(child_genome) | set(compensation_cycle) }
+    return repaired_child
+    
+def repair_genome_mut(child_genome, spans, pcycles):
+    unprotected_span = {}
+    protected_spans = {}
+    new_pcycle_set = {}
+    new_pcycle_costs_set = {}
+    
+    for k, usage in child_genome.items():
+        for _k in pcycles[k].keys():
+            if _k not in protected_spans:
+                if pcycles[k][_k] == 1:
+                    protected_spans[_k] = usage
+                else:
+                    protected_spans[_k] = 2*usage
+            else:
+                if pcycles[k][_k] == 1:
+                    protected_spans[_k] += usage
+                else:
+                    protected_spans[_k] += 2*usage
+                    
+    for span in spans.keys():
+        if span not in protected_spans.keys():
+            unprotected_span[span] = int(spans[span][1])
+        else:
+            if spans[span][1] > protected_spans[span]:
+                unprotected_span[span] = int(spans[span][1]) - int(protected_spans[span])
+                
+    spans_merge = {}
+    for kkey, vval in unprotected_span.items():
+        spans_merge[kkey] = [spans[kkey][0], vval]
+    for kkey, vval in spans.items():
+        if kkey not in spans_merge:
+            spans_merge[kkey] = [spans[kkey][0], 0]
+            
+    ## 2. Repair by Min_cycle:
+    compensation_cycle, new_pcycle = Min_Cycle_Repair(spans_merge, pcycles, span_node, node_span)
+    
+    ## 3. Repair by Max_Match:
+    #compensation_cycle, new_pcycle = Max_Overlap_Cost(spans_merge, pcycles)
+    
+    repaired_child = { k: child_genome.get(k, 0) + compensation_cycle.get(k, 0) for k in set(child_genome) | set(compensation_cycle) }
+    
+    new_pcycle_set = {**new_pcycle_set, **new_pcycle} # useless for repair method 3
+    new_pcycle_cost_dict = calculate_p_cost(spans, new_pcycle_set) # useless for repair method 3
+    new_pcycle_costs_set = {**new_pcycle_costs_set, **new_pcycle_cost_dict} # useless for repair method 3
+    return repaired_child, new_pcycle_set, new_pcycle_costs_set
+    
+    
+## CROSSOVER FUNCTIONS:
+
+# Crossover 1: Two-point crossover
+
+def two_point(parent1, parent2, pcycle_set):
+    childP1 = {}
+    childP2 = {}
+    childP3 = {}
+    childP4 = {}
+    
+    geneA1 = int(random.random() * len(parent1.items()))
+    geneB1 = int(random.random() * len(parent1.items()))
+    geneA2 = int(random.random() * len(parent2.items()))
+    geneB2 = int(random.random() * len(parent2.items()))
+    startGene1 = min(geneA1, geneB1)
+    endGene1 = max(geneA1, geneB1)
+    startGene2 = min(geneA2, geneB2)
+    endGene2 = max(geneA2, geneB2)
+    
+    p1_list = []
+    for key, value in parent1.items():
+        temp = [key,value]
+        p1_list.append(temp)
+    p2_list = []
+    for key, value in parent2.items():
+        temp = [key,value]
+        p2_list.append(temp)
+        
+    for i in range(startGene1, endGene1):
+        _pick = p1_list[i]
+        childP1[_pick[0]] = _pick[1]
+    for k,v in parent1.items():
+        if k not in childP1:
+            childP2[k] = v
+    for i in range(startGene2, endGene2):
+        _pick = p2_list[i]
+        childP3[_pick[0]] = _pick[1]
+    for k,v in parent2.items():
+        if k not in childP3:
+            childP4[k] = v
+            
+    child1 = {**childP1, **childP4}
+    child2 = {**childP2, **childP3}
+    repaired_child1 = repair_genome_cross(child1, spans, pcycle_set)
+    repaired_child2 = repair_genome_cross(child2, spans, pcycle_set)
+    
+    return repaired_child1, repaired_child2
+    
+# Crossover 2: one point crossover
+
+def one_point(parent1, parent2, pcycle_set):
+    childP1 = {}
+    childP2 = {}
+    childP3 = {}
+    childP4 = {}
+    
+    p1_list = []
+    for key, value in parent1.items():
+        temp = [key,value]
+        p1_list.append(temp)
+    p2_list = []
+    for key, value in parent2.items():
+        temp = [key,value]
+        p2_list.append(temp)
+        
+    gene1 = int(random.random() * len(parent1.items()))
+    gene2 = int(random.random() * len(parent2.items()))
+    
+    for i in range(0, gene1):
+        _pick = p1_list[i]
+        childP1[_pick[0]] = _pick[1]
+    for k,v in parent1.items():
+        if k not in childP1:
+            childP2[k] = v
+    for i in range(0, gene2):
+        _pick = p2_list[i]
+        childP3[_pick[0]] = _pick[1]
+    for k,v in parent2.items():
+        if k not in childP3:
+            childP4[k] = v
+            
+    child1 = {**childP1, **childP4}
+    child2 = {**childP2, **childP3}
+    repaired_child1 = repair_genome_cross(child1, spans, pcycle_set)
+    repaired_child2 = repair_genome_cross(child2, spans, pcycle_set)
+    
+    return repaired_child1, repaired_child2
+
+# Crossover 3: uniform crossover
+    # Very simple and straightfoward Mask setting: chromosome-length with binary pattern of [01010101010101...]
+    # Not robust --> not in use any further
+    
+def breed_population3(selection, crossover, ranked_pop, pcycle_costs, cross_rate, pcycle_set, popSize):
+    children = []
+    
+    for _ in range(len(ranked_pop)):
+        if random.random() < cross_rate:
+            if selection == "select_tournament":
+                pick1 = select_tournament(ranked_pop, pcycle_costs)
+                pick2 = select_tournament(ranked_pop, pcycle_costs)
+            elif selection == "select_roulette":
+                pick1 = select_roulette(ranked_pop, pcycle_costs)
+                pick2 = select_roulette(ranked_pop, pcycle_costs)
+            elif selection == "select_tournament_adp":
+                pick1 = select_tournament_adp(ranked_pop, pcycle_costs, popSize)
+                pick2 = select_tournament_adp(ranked_pop, pcycle_costs, popSize)
+            while pick1 == pick2:
+                if selection == "select_tournament":
+                    pick2 = select_tournament(ranked_pop, pcycle_costs)
+                elif selection == "select_roulette":
+                    pick2 = select_roulette(ranked_pop, pcycle_costs)
+                elif selection == "select_tournament_adp":
+                    pick2 = select_tournament_adp(ranked_pop, pcycle_costs, popSize)
+            if crossover == "one_point":
+                child1, child2 = two_point(pick1, pick2, pcycle_set)
+            elif crossover == "two_point":
+                child1, child2 = two_point(pick1, pick2, pcycle_set)
+            children.append(child1)
+            children.append(child2)
+    mutation_pop = ranked_pop + children
+    return children, mutation_pop
+    
+    
+## MUTATION FUNCTION:  5 mutation methods
+    # 1. Randomly remove one cycle (and all its copies used) --> repair it
+    # 2. Cycle_merging:
+    # 3. Randomly remove one copy of a cycle, and add one random cycle (one copy) --> repair it
+    # 4. Randomly pick an ind, remove 10% cycles with largest costs, add 5 random cycle --> repair it
+    # 5. Randomly remove all copies of 1 cycle, add 1 copy 1 random cycle --> repair it
+
+# 1. Randomly remove one copy of a cycle:
+
+def mutate_rand_remove(individual, pcycles):
+    individual_copy = copy.deepcopy(individual)
+    individual_keys = list(individual_copy.keys())
+    swappee = int(random.random() * len(individual_keys))
+    individual_copy[individual_keys[swappee]] = int(individual_copy[individual_keys[swappee]])-1
+      # remove one copy of a candidate cycle
+    new_individual = { k:v for k,v in individual_copy.items() if v > 0 }
+      # Need repair algorithm:
+    repaired_individual, new_pcycle_set, new_pcycle_costs_set = repair_genome_mut(new_individual, spans, pcycles)
+    return repaired_individual, new_pcycle_set, new_pcycle_costs_set
+    
+# 2. Cycle Merging:
+
+def mutation_span_merge(individual, pcycles):
+    new_individual = copy.deepcopy(individual)
+    new_pcycle = {}
+    new_pcycle_usage = {}
+    final_individual = {}
+    global new_id_mut
+    ind_keys_list = list(individual.keys())
+    for index1, cycle1_id in enumerate(ind_keys_list):
+        for index2, cycle2_id in enumerate(ind_keys_list):
+            if index2 > index1:
+                if cycle1_id == cycle2_id:
+                    continue
+                cycle_1spans_dict = dict(pcycles[cycle1_id])
+                cycle_2spans_dict = dict(pcycles[cycle2_id])
+                cycle_1node_list = []
+                cycle_2node_list = []
+                cycle_1usage = new_individual[cycle1_id]
+                cycle_2usage = new_individual[cycle2_id]
+                if cycle_1usage == 0 or cycle_2usage == 0:
+                    continue
+                shared_items = [k for k in cycle_1spans_dict if k in cycle_2spans_dict and cycle_1spans_dict[k] == 1 and cycle_2spans_dict[k] == 1]
+                # check if no other nodes (other than the two nodes on the shared_items) are overlapping
+                if len(shared_items) != 1:
+                    continue
+                new_individual_span = {}
+                shared_items_N1 = span_node[list(shared_items)[0]][0]
+                shared_items_N2 = span_node[list(shared_items)[0]][1]
+                for sp1 in cycle_1spans_dict.keys():
+                    sp1_N1 = span_node[sp1][0]
+                    sp1_N2 = span_node[sp1][1]
+                    cycle_1node_list.append(sp1_N1)
+                    cycle_1node_list.append(sp1_N2)
+                for sp2 in cycle_2spans_dict.keys():
+                    sp2_N1 = span_node[sp2][0]
+                    sp2_N2 = span_node[sp2][1]
+                    cycle_2node_list.append(sp2_N1)
+                    cycle_2node_list.append(sp2_N2)
+                shared_node = set(cycle_1node_list) & set(cycle_2node_list)
+                shared_node -= {shared_items_N1}
+                shared_node -= {shared_items_N2}
+                shared_node_list = list(shared_node)
+                if shared_node_list:
+                    continue
+                # check if only share one span
+                if len(shared_items) == 1:
+                    new_individual_span[shared_items[0]] = 2
+                    cycle_1spans_dict[shared_items[0]] = -1
+                    cycle_2spans_dict[shared_items[0]] = -1
+                    for kk, vv in cycle_1spans_dict.items():
+                        if vv != -1:
+                            new_individual_span[kk] = vv
+                    for kk, vv in cycle_2spans_dict.items():
+                        if vv != -1:
+                else:
+                    continue
+                    
+                new_individual_span[kk] = vv
+                new_cycle_id = "Merged_CYL" + str(new_id_mut) # new pcycle id given
+                new_pcycle[new_cycle_id] = new_individual_span
+                usage_new_cycle = min(cycle_1usage, cycle_2usage)
+                new_pcycle_usage[new_cycle_id] = int(usage_new_cycle)
+                cycle_1usage -= int(usage_new_cycle)
+                new_individual[cycle1_id] = cycle_1usage
+                cycle_2usage -= int(usage_new_cycle)
+                new_individual[cycle2_id] = cycle_2usage
+                new_id_mut += 1
+    new_individual_new_pcycles = {**new_individual, **new_pcycle_usage}
+    for mkk, mvv in new_individual_new_pcycles.items():
+        if mvv > 0:
+            final_individual[mkk] = mvv
+    return final_individual, new_pcycle
+    
+# 3. Remove one copy of a cycle , add one copy of a cycle:
+
+def mutate_remove1_add1(individual, pcycles):
+    individual_copy = copy.deepcopy(individual)
+    individual_keys = list(individual_copy.keys())
+    individual_added = {}
+    swapper_id = None
+    swappee = int(random.random() * len(individual_keys))
+    individual_copy[individual_keys[swappee]] = int(individual_copy[individual_keys[swappee]])-1
+    
+    # remove one copy of a candidate cycle
+    swapper_id = pick_random_cycle(pcycles) # add one random cycle
+    if swapper_id not in individual_copy:
+        individual_added[swapper_id] = 1
+    individual_copy = { k:v for k,v in individual_copy.items() if v > 0 }
+    
+    # Merge individual_copy and individual_added
+    new_individual = { k: individual_copy.get(k, 0) + individual_added.get(k, 0) for k in set(individual_added) | set(individual_copy) }
+    repaired_individual, new_pcycle_set, new_pcycle_costs_set = repair_genome_mut(new_individual, spans, pcycles)
+    return repaired_individual, new_pcycle_set, new_pcycle_costs_set
+    
+# 4. Remove one copy of each worst 10% cycles, add 3 rand cycles:
+
+def mutate_less10add3(individual, pcycles, pcycles_costs):
+    individual_copy = copy.deepcopy(individual)
+    individual_cost = []
+    added_inds = {}
+    pcycle_ids = []
+    new_individual = {}
+    
+    for cycle_id, cycle_usage in individual_copy.items():
+        if cycle_usage == 0:
+            continue
+        individual_cost.append((cycle_id, pcycles_costs[cycle_id]))  # individual_cost is [('cycle id', cycle cost), (,), (,)...]
+        pcycle_ids.append(cycle_id)
+        
+    while True:
+        rand_index = int(random.random() * len(pcycles))
+        pick_rand_cyc = list(pcycles.keys())[rand_index]
+        if pick_rand_cyc not in pcycle_ids:
+            added_inds[pick_rand_cyc] = 1
+        if len(added_inds) == 3: # add 3 random cycles
+            break
+    # Remove one copy from each bottom 10% (selecting top 90%)
+    sorted_tup = sorted(individual_cost, key=lambda e:e[1])  # sort the list from small cost to large cost
+   
+   for ind in range(int(len(sorted_tup)* 0.9), len(sorted_tup)):
+        select_id = sorted_tup[ind][0]
+        if int(individual_copy[select_id]) >= 1:
+            individual_copy[select_id] = int(individual_copy[select_id])-1
+   
+   # Merge added_inds and individual_copy
+    new_individual = { k: added_inds.get(k, 0) + individual_copy.get(k, 0) for k in set(added_inds) | set(individual_copy) }
+    new_individual = { k:v for k,v in new_individual.items() if v > 0 }
+    repaired_individual, new_pcycle_set, new_pcycle_costs_set = repair_genome_mut(new_individual, spans, pcycles)
+    return repaired_individual, new_pcycle_set, new_pcycle_costs_set
+
+# 5. Remove one cycle (all copies), add one cycle:
+
+def mutate_remove1all_add1(individual, pcycles):
+    individual_copy = copy.deepcopy(individual)
+    individual_keys = list(individual_copy.keys())
+    individual_added = {}
+    swapper_id = None
+    swappee = int(random.random() * len(individual_keys))
+    individual_copy[individual_keys[swappee]] = -100
+    swapper_id = pick_random_cycle(pcycles) # Adding one random cycle to new_individual:
+    if swapper_id not in individual_copy:
+        individual_added[swapper_id] = 1
+    individual2 = { k:v for k,v in individual_copy.items() if v != -100 }
+    
+    # Remove one cycle: Merge individual2 and individual_added
+    new_individual = { k: individual2.get(k, 0) + individual_added.get(k, 0) for k in set(individual_added) | set(individual2) }
+    repaired_individual, new_pcycle_set, new_pcycle_costs_set = repair_genome_mut(new_individual, spans, pcycles)
+    return repaired_individual, new_pcycle_set, new_pcycle_costs_set
+    
+    
+# Mutation 1. Randomly remove a cycle * copies of that cycle:
+
+def mutate1(mutation_pop,mutation_rate, pcycle_costs, pcycles):
+    mutated_children = []
+    pcycle_set1 = pcycles
+    pcycle_costs1 = pcycle_costs
+    for _ in range(len(mutation_pop)):
+        if random.random() < mutation_rate:
+            pick_ii = select_random(mutation_pop)
+            mutated_ind, new_pcycle_set, new_pcycle_costs_set = mutate_rand_remove(pick_ii, pcycles)
+            mutated_children.append(mutated_ind)
+            pcycle_set1 = {**pcycle_set1, **new_pcycle_set}
+            pcycle_costs1 = {**pcycle_costs1, **new_pcycle_costs_set}
+    return mutated_children, pcycle_set1, pcycle_costs
+
+# Mutation 2. Cycle Merging:
+
+def mutate2(mutation_pop,mutation_rate, pcycle_costs, pcycles):
+    mutated_children = []
+    new_pcycle_set = {}
+    new_pcycle_costs_set = {}
+    
+    for _ind in range(len(mutation_pop)):
+        if random.random() < mutation_rate:
+            pick_ii = select_random(mutation_pop)
+            mutated_ind, new_pcycle = mutation_span_merge(pick_ii, pcycles)
+            mutated_children.append(mutated_ind.copy())
+            new_pcycle_set = {**new_pcycle_set, **new_pcycle}
+            new_pcycle_cost_dict = calculate_p_cost(spans, new_pcycle_set)
+            new_pcycle_costs_set = {**new_pcycle_costs_set, **new_pcycle_cost_dict}
+    return mutated_children, new_pcycle_set, new_pcycle_costs_set
+    
+# Mutation 3. Remove one copy of a cycle , add one copy of a cycle:
+
+def mutate3(mutation_pop,mutation_rate, pcycle_costs, pcycles):
+    mutated_children = []
+    pcycle_set3 = pcycles
+    pcycle_costs3 = pcycle_costs
+    
+    for _ in range(len(mutation_pop)):
+        if random.random() < mutation_rate:
+            pick_ii = select_random(mutation_pop)
+            mutated_ind, new_pcycle_set, new_pcycle_costs_set = mutate_remove1_add1(pick_ii, pcycles)
+            mutated_children.append(mutated_ind)
+            pcycle_set3 = {**pcycle_set3, **new_pcycle_set}
+            pcycle_costs3 = {**pcycle_costs3, **new_pcycle_costs_set}
+    return mutated_children, pcycle_set3, pcycle_costs3
+    
+# Mutation 4. Remove one copy of each worst 10% cycles, add 3 rand cycles:
+
+def mutate4(mutation_pop,mutation_rate, pcycle_costs, pcycles):
+    mutated_children = []
+    pcycle_set4 = pcycles
+    pcycle_costs4 = pcycle_costs
+    
+    for _ in range(len(mutation_pop)):
+        if random.random() < mutation_rate:
+            pick_ii = select_random(mutation_pop)
+            mutated_ind, new_pcycle_set, new_pcycle_costs_set = mutate_less10add3(pick_ii, pcycle_set4, pcycle_costs4)
+            mutated_children.append(mutated_ind)
+            pcycle_set4 = {**pcycle_set4, **new_pcycle_set}
+            pcycle_costs4 = {**pcycle_costs4, **new_pcycle_costs_set}
+    return mutated_children, pcycle_set4, pcycle_costs4
+    
+# Mutation 5. Remove one cycle completely, add one copy of a cycle:
+
+def mutate5(mutation_pop,mutation_rate, pcycle_costs, pcycles):
+    mutated_children = []
+    pcycle_set5 = pcycles
+    pcycle_costs5 = pcycle_costs
+    
+    for _ in range(len(mutation_pop)):
+        if random.random() < mutation_rate:
+            pick_ii = select_random(mutation_pop)
+            mutated_ind, new_pcycle_set, new_pcycle_costs_set = mutate_remove1all_add1(pick_ii, pcycles)
+            mutated_children.append(mutated_ind)
+            pcycle_set5 = {**pcycle_set5, **new_pcycle_set}
+            pcycle_costs5 = {**pcycle_costs5, **new_pcycle_costs_set}
+    return mutated_children, pcycle_set5, pcycle_costs5
+    
+def mutate_pop(mutation, ranked_pop, mutation_rate, pcycle_costs, pcycle_set):
+    if mutation == "mutate1":
+        mutated_children, new_pcycles, new_pcycle_costs = mutate1(ranked_pop,mutation_rate,pcycle_costs, pcycle_set)
+    elif mutation == "mutate2":
+        mutated_children, new_pcycles, new_pcycle_costs = mutate2(ranked_pop,mutation_rate,pcycle_costs, pcycle_set)
+    elif mutation == "mutate3":
+        mutated_children, new_pcycles, new_pcycle_costs = mutate3(ranked_pop,mutation_rate,pcycle_costs, pcycle_set)
+    elif mutation == "mutate4":
+        mutated_children, new_pcycles, new_pcycle_costs = mutate4(ranked_pop,mutation_rate,pcycle_costs, pcycle_set)
+    elif mutation == "mutate5":
+        mutated_children, new_pcycles, new_pcycle_costs = mutate5(ranked_pop,mutation_rate,pcycle_costs, pcycle_set)
+    return mutated_children, new_pcycles, new_pcycle_costs
+    
+    
+## NEXT GENERATION ##
+# Using all mutation methods:
+
+def next_generation(selection, crossover, mutation, current_gen, cross_rate, mutation_rate, pcycle_costs, pcycle_set, popSize):
+    new_generation = []
+    pop_copy = current_gen
+    source_children = {}
+    
+    for nnn in current_gen:
+        new_generation.append(nnn)
+    children, _ = breed_population3(selection, crossover, pop_copy, pcycle_costs, cross_rate, pcycle_set, popSize)
+    for iii in children:
+        if iii not in new_generation:
+            new_generation.append(iii)
+            source_children[frozenset(iii.items())] = 0
+            
+    # Options: mutate1, mutate2, mutate3, mutate4, mutate5
+    mutated_children, new_pcycles, new_pcycle_costs = mutate_pop(mutation, pop_copy, mutation_rate, pcycle_costs, pcycle_set)
+    
+    for ddd in mutated_children:
+        if ddd not in new_generation:
+            new_generation.append(ddd)
+            source_children[frozenset(ddd.items())] = 1
+    updated_pcycles = {**pcycle_set, **new_pcycles}
+    updated_pcycle_costs = {**pcycle_costs, **new_pcycle_costs}
+    new_pop_ranked, new_pop_scores = rankCost(updated_pcycle_costs, new_generation)
+    return new_pop_ranked[:len(current_gen)], new_pop_scores[:len(current_gen)], updated_pcycles, updated_pcycle_costs, source_children
+
+# When unchanged value reach gen = 60, use span_merge as mutation method:
+def next_gen_mutation2(selection, crossover, current_gen, cross_rate, mutation_rate, pcycle_costs, pcycle_set, popSize):
+    new_generation = []
+    source_children = {}
+    pop_copy = current_gen
+    for nnn in current_gen:
+        new_generation.append(nnn)
+    children, _ = breed_population3(selection, crossover, pop_copy, pcycle_costs, cross_rate, pcycle_set, popSize)
+    
+    for iii in children:
+        if iii not in new_generation:
+            new_generation.append(iii)
+            source_children[frozenset(iii.items())] = 0
+    mutated_children, new_pcycles, new_pcycle_costs = mutate2(pop_copy, mutation_rate, pcycle_costs, pcycle_set)
+    
+    for ddd in mutated_children:
+        if ddd not in new_generation:
+            new_generation.append(ddd)
+            source_children[frozenset(ddd.items())] = 1
+    updated_pcycles = {**pcycle_set, **new_pcycles}
+    updated_pcycle_costs = {**pcycle_costs, **new_pcycle_costs}
+    new_pop_ranked, new_pop_scores = rankCost(updated_pcycle_costs, new_generation)
+    return new_pop_ranked[:len(current_gen)], new_pop_scores[:len(current_gen)], updated_pcycles, updated_pcycle_costs, source_children
+
+
+
+### Initiate GA Process ###
+
+def genetic_algorithm(selection, crossover, mutation, popSize, cross_rate, mutation_rate, pcycle_set):
+    pop = initial_population(popSize, pcycles)
+    pcycle_costs = calculate_p_cost(spans, pcycles) # Calculate fitness values
+    pop_rank, pop_scores = rankCost(pcycle_costs, pop) # rank all ind from initial population based on their fitness values
+    print(pop_rank[0]) # And print out best ind from init_pop and its cost to compare with GA result
+    print(pop_scores[0])
+    
+    global_min_cost = math.inf
+    
+    stats_source = [0, 0] #counts for children from either cross or mutation
+    
+    gen_counter = 0
+    for gen in range(0, 1000):
+        best_current_gen, rank_cost, updated_pcycles, updated_pcycle_costs, source_children = next_generation(selection, crossover, mutation, pop_rank, cross_rate, mutation_rate,
+pcycle_costs, pcycle_set, popSize)
+         
+        if rank_cost[0] < global_min_cost:
+            ## increase
+            global_min_cost = rank_cost[0]
+            optimal_res = best_current_gen[0]
+            gen_counter = 0
+            if frozenset(optimal_res.items()) in source_children:
+                stats_source[source_children[frozenset(optimal_res.items())]] += 1
+            else:
+                print('NEW IMPROVEMENT')
+            print(f'{gen}: Better Global Min Cost {global_min_cost}')
+        else:
+            gen_counter += 1
+            if gen_counter == 60:
+                best_current_gen, rank_cost, updated_pcycles, updated_pcycle_costs,
+source_children = next_gen_mutation2(selection, crossover, pop_rank, cross_rate, mutation_rate, pcycle_costs, pcycle_set, popSize)
+                if rank_cost[0] < global_min_cost:
+                    global_min_cost = rank_cost[0]
+                    optimal_res = best_current_gen[0]
+                    gen_counter = 0
+                    if frozenset(optimal_res.items()) in source_children:
+                        stats_source[source_children[frozenset(optimal_res.items())]] += 1
+                    else:
+                        print('NEW IMPROVEMENT')
+                        # print(optimal_res)
+                    print(f'{gen}: Cycle-Merge applied, Better Global Min Cost
+                else:
+                    print(f'Process terminated at {gen} with final global min cost of {global_min_cost}')
+                    break
+        pop_rank = best_current_gen
+        pcycle_set = updated_pcycles
+        pcycle_costs = updated_pcycle_costs
+    print(f'Improved children counts from {stats_source}')
+    
+    # print(optimal_res) # evaluate the result
+    
+    print('Total Cost = '+ str(global_min_cost)) # evaluate validity of this GA process -- is the cost decreasing?
+    return optimal_res, pcycle_set, global_min_cost
+    
+random.seed(666)
+
+now = datetime.datetime.now()
+
+print(now)
+
+optimal_result, updated_pcycles, global_min_cost = genetic_algorithm(selection = Selection_Method, crossover = Crossover_Type, mutation = Mutation_Type, popSize = input_pop,
+cross_rate = input_cr, mutation_rate = input_mr, pcycle_set = pcycles)
+
+the_end = time.time()
+
+print('Total Runtime =' + str(the_end - start))
+
+
+## Write new pcycles to a new .pcycle file [for verification of full protection]
+
+text_file = open(output_pcycle, "w")
+for key, value in updated_pcycles.items():
+    text_file.write(key + ": ")
+    for kk, tt in value.items():
+        text_file.write(kk + " " + str(tt) + " ")
+    text_file.write("\n")
+text_file.close()
+
+
+## Calculate pcycle set SC, WC, EW&AP scores ###
+ind_sc = 0
+
+def pcycle_spare_capacity(spans, cycle_val):
+    pcycle_sc_score = 0
+    for _, vv in cycle_val.items():
+        if vv == 1:
+            pcycle_sc_score += 1
+    return pcycle_sc_score
+    
+for cy_id, cy_use in optimal_result.items():
+    cycle_sc = pcycle_spare_capacity(spans, updated_pcycles[cy_id])
+    ind_sc = ind_sc + cycle_sc * cy_use
+    
+def pcycle_work_capacity(spans):
+    pcycle_wc_score = 0
+    pcycle_wc_cost = 0
+    for _, comp in spans.items():
+        pcycle_wc_score += comp[1]
+        pcycle_wc_cost += comp[0] * comp[1]
+    return pcycle_wc_score, pcycle_wc_cost
+    
+ind_wc, ind_wc_cost = pcycle_work_capacity(spans)
+
+print('Total Spare Capacity = '+ str(ind_sc))
+
+print('Total Spare Capacity Cost = ' + str(global_min_cost))
+
+print('Total Working Capacity = '+ str(ind_wc))
+
+print('Total Working Capacity Cost = '+ str(ind_wc_cost))
+
+print('Redundancy = ' "{0:.2f}%".format(ind_sc/ind_wc * 100))
