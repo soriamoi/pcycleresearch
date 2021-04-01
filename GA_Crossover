@@ -1,0 +1,130 @@
+## CROSSOVER FUNCTIONS FOR GA-SCA:
+
+# Crossover 1: Two-point crossover
+
+def two_point(parent1, parent2, pcycle_set):
+    childP1 = {}
+    childP2 = {}
+    childP3 = {}
+    childP4 = {}
+    
+    geneA1 = int(random.random() * len(parent1.items()))
+    geneB1 = int(random.random() * len(parent1.items()))
+    geneA2 = int(random.random() * len(parent2.items()))
+    geneB2 = int(random.random() * len(parent2.items()))
+    
+    startGene1 = min(geneA1, geneB1)
+    endGene1 = max(geneA1, geneB1)
+    startGene2 = min(geneA2, geneB2)
+    endGene2 = max(geneA2, geneB2)
+    
+    p1_list = []
+    for key, value in parent1.items():
+        temp = [key,value]
+        p1_list.append(temp)
+        
+    p2_list = []
+    for key, value in parent2.items():
+        temp = [key,value]
+        p2_list.append(temp)
+        
+    for i in range(startGene1, endGene1):
+        _pick = p1_list[i]
+        childP1[_pick[0]] = _pick[1]
+    for k,v in parent1.items():
+        if k not in childP1:
+            childP2[k] = v
+            
+    for i in range(startGene2, endGene2):
+        _pick = p2_list[i]
+        childP3[_pick[0]] = _pick[1]
+    for k,v in parent2.items():
+        if k not in childP3:
+            childP4[k] = v
+            
+    child1 = {**childP1, **childP4}
+    child2 = {**childP2, **childP3}
+    
+    repaired_child1 = repair_genome_cross(child1, spans, pcycle_set)
+    repaired_child2 = repair_genome_cross(child2, spans, pcycle_set)
+    
+    return repaired_child1, repaired_child2
+
+# Crossover 2: One point crossover
+
+def one_point(parent1, parent2, pcycle_set):
+    childP1 = {}
+    childP2 = {}
+    childP3 = {}
+    childP4 = {}
+    
+    p1_list = []
+    for key, value in parent1.items():
+        temp = [key,value]
+        p1_list.append(temp)
+        
+    p2_list = []
+    for key, value in parent2.items():
+        temp = [key,value]
+        p2_list.append(temp)
+        
+    gene1 = int(random.random() * len(parent1.items()))
+    gene2 = int(random.random() * len(parent2.items()))
+    
+    for i in range(0, gene1):
+        _pick = p1_list[i]
+        childP1[_pick[0]] = _pick[1]
+    for k,v in parent1.items():
+        if k not in childP1:
+            childP2[k] = v
+            
+    for i in range(0, gene2):
+        _pick = p2_list[i]
+        childP3[_pick[0]] = _pick[1]
+    for k,v in parent2.items():
+        if k not in childP3:
+            childP4[k] = v
+            
+    child1 = {**childP1, **childP4}
+    child2 = {**childP2, **childP3}
+    
+    repaired_child1 = repair_genome_cross(child1, spans, pcycle_set)
+    repaired_child2 = repair_genome_cross(child2, spans, pcycle_set)
+    
+    return repaired_child1, repaired_child2
+
+# Crossover 3: uniform crossover
+    # Very simple and straightfoward Mask setting: chromosome-length with binary pattern of [01010101010101...]
+    # Not robust --> not in use any further
+    
+def breed_population3(selection, crossover, ranked_pop, pcycle_costs, cross_rate, pcycle_set,popSize):
+    children = []
+    
+    for _ in range(len(ranked_pop)):
+        if random.random() < cross_rate:
+            if selection == "select_tournament":
+                pick1 = select_tournament(ranked_pop, pcycle_costs)
+                pick2 = select_tournament(ranked_pop, pcycle_costs)
+            elif selection == "select_roulette":
+                pick1 = select_roulette(ranked_pop, pcycle_costs)
+                pick2 = select_roulette(ranked_pop, pcycle_costs)
+            elif selection == "select_tournament_adp":
+                pick1 = select_tournament_adp(ranked_pop, pcycle_costs, popSize)
+                pick2 = select_tournament_adp(ranked_pop, pcycle_costs, popSize)
+            while pick1 == pick2:
+                if selection == "select_tournament":
+                    pick2 = select_tournament(ranked_pop, pcycle_costs)
+                elif selection == "select_roulette":
+                    pick2 = select_roulette(ranked_pop, pcycle_costs)
+                elif selection == "select_tournament_adp":
+                    pick2 = select_tournament_adp(ranked_pop, pcycle_costs, popSize)
+            if crossover == "one_point":
+                child1, child2 = two_point(pick1, pick2, pcycle_set)
+            elif crossover == "two_point":
+                child1, child2 = two_point(pick1, pick2, pcycle_set)
+                
+            children.append(child1)
+            children.append(child2)
+    mutation_pop = ranked_pop + children
+    
+    return children, mutation_pop
