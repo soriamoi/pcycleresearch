@@ -1,0 +1,39 @@
+## SELECTION METHODS FOR GA-SCA:
+
+# 1. Roulette Wheel Selection Method:
+
+def select_roulette(ranked_pop, pcycle_costs):
+    cost_scores = []
+    score_factor = 1200 # not very necessary but does not affect results
+    for ccc in ranked_pop:
+        cycle_cost = calculate_fitness_cost(pcycle_costs, ccc)
+        cycle_score = (score_factor/cycle_cost)**2
+        cost_scores.append(cycle_score)
+    total_sum = sum(cost_scores)
+    normalized_probs = [float(item / total_sum) for item in cost_scores]
+    select_parent = random.choices(population=ranked_pop, weights=normalized_probs, k=1)
+    return select_parent[0]
+    
+# 2. Tournament Selection Method:
+
+def select_tournament(ranked_pop, pcycle_costs):
+    select_ind = random.choices(population=ranked_pop, weights=None, k=10)
+    ranked_ind, _ = rankCost(pcycle_costs, select_ind)
+    selected_parent = ranked_ind[0]
+    return selected_parent
+    
+# 3. Adaptive Tournament Selection Method using an adaptive tournament subset size 
+      # (5% of length of chromosome):
+
+def select_tournament_adp(ranked_pop, pcycle_costs, popSize):
+    select_ind = random.choices(population=ranked_pop, weights=None, k=int(popSize*0.05))
+    ranked_ind, _ = rankCost(pcycle_costs, select_ind)
+    selected_parent = ranked_ind[0]
+    return selected_parent
+    
+# 4. Random Selection Method:
+
+def select_random(ranked_pop):
+    random_index = random.randint(0,len(ranked_pop)-1)
+    random_parent = ranked_pop[random_index]
+    return random_parent
