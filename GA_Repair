@@ -1,0 +1,126 @@
+## Methods for Repairing Genome: ##
+
+# 1. Minimum cycles for Repair Genome
+
+def Min_Cycle_Repair(spans, pcycles, span_node, node_span):
+    cycle_usage = {}
+    new_id2 = 0
+    
+    for span_id in spans.keys():
+        while spans[span_id][1] > 0:
+            best_cycle_id = None
+            N0 = span_node[span_id][0]
+            N1 = span_node[span_id][1]
+            cost_shortest1, path_shortest1 = shortest_path(graph, N0, N1)
+            if cost_shortest1 == sys.maxsize:
+                raise ValueError('Impossible, No shortest path found!')
+            cycle_span_info = {}
+            
+            for node_start1, node_end1 in zip(path_shortest1[:-1], path_shortest1[1:]):
+                span_ider1 = node_span[node_start1 + " , " + node_end1]
+                cycle_span_info[span_ider1] = 1
+            cycle_span_info[span_id] = 1
+            all_nodes_on_this_cycle = []
+            
+            for ss, jj in cycle_span_info.items():
+                if jj == 1:
+                    node1_for_ss = span_node[ss][0]
+                    node2_for_ss = span_node[ss][1]
+                    all_nodes_on_this_cycle.append(node1_for_ss)
+                    all_nodes_on_this_cycle.append(node2_for_ss)
+            nodeset = set(all_nodes_on_this_cycle)
+            nodes_on_this_cycle = list(nodeset)
+            
+            for nn, dd in node_span.items():
+                nn_nodes = nn.split(' , ')
+                if nn_nodes[0] in nodes_on_this_cycle and nn_nodes[1] in nodes_on_this_cycle and dd not in cycle_span_info:
+                    cycle_span_info[dd] = 2
+                    
+            ## Check if cycle_Span_info is a duplicate of a cycle in pcycles
+            
+            flagger = False
+            for key, val in pcycles.items():
+                if cycle_span_info == val:
+                    if key not in cycle_usage:
+                        cycle_usage[key] = 1
+                    else:
+                        cycle_usage[key] = cycle_usage[key] + 1
+                    flagger = True
+                    break
+                    
+            if not flagger:
+                new_id2 = new_id2 + 1
+                best_cycle_id = "Rcyc " + str(new_id2) # new pcycle id given
+                cycle_usage[best_cycle_id] = 1
+                pcycles[best_cycle_id] = cycle_span_info
+                
+            for key, value in cycle_span_info.items():
+                if value == 1:
+                    spans[key][1] = spans[key][1] - 1
+                    if spans[key][1] < 0:
+                        spans[key][1] = 0
+                        
+            for key, value in cycle_span_info.items():
+                if value == 2:
+                    spans[key][1] = spans[key][1] - 2
+                    if spans[key][1] < 0:
+                        spans[key][1] = 0
+    return cycle_usage, pcycles
+    
+    
+# 2. Max_Overlap for Repair Genome
+
+def Max_Overlap_Cost(spans, pcycles):
+    cycle_usage = {}
+    
+    # counter to collect pid
+    while True:
+        pcycle_hit = {}
+        max_pid_cc = 0
+        max_pid = "-1"
+        min_cost_pcycle = sys.maxsize
+        
+        for span_id in spans.keys():
+            if spans[span_id][1] > 0:
+                straddle_flag = False
+                if span_id in straddle_pcycle_indexer:
+                    pcycle_list_with_this_spanid = straddle_pcycle_indexer[span_id]
+                    straddle_flag = True
+                else:
+                    pcycle_list_with_this_spanid = span_pcycle_indexer[span_id]
+                    
+                for pid, _ in pcycle_list_with_this_spanid:
+                    if pid not in pcycle_hit and straddle_flag:
+                        pcycle_hit[pid] = [pid, 1, 0]
+                    elif pid not in pcycle_hit and not straddle_flag:
+                        pcycle_hit[pid] = [pid, 0, 1]
+                    elif pid in pcycle_hit and straddle_flag:
+                        pcycle_hit[pid][1] += 1
+                    else:
+                        pcycle_hit[pid][2] += 1
+                        
+                    if pcycle_hit[pid][1] > max_pid_cc:
+                        max_pid_cc = pcycle_hit[pid][1]
+                        min_cost_pcycle = pcycle_costs_global[pid]
+                        max_pid = pid
+                    elif pcycle_hit[pid][1] == max_pid_cc:
+                        if pcycle_costs_global[pid] < min_cost_pcycle:
+        if max_pid == "-1":
+            break
+
+        best_cycle_id = max_pid # deterministic
+        if best_cycle_id not in cycle_usage:
+            cycle_usage[best_cycle_id] = 1
+        else:
+            cycle_usage[best_cycle_id] = cycle_usage[best_cycle_id] + 1
+            
+        for key, value in pcycles[best_cycle_id].items():
+            if value == 1:
+                spans[key][1] = spans[key][1] - 1
+                if spans[key][1] < 0:
+                    spans[key][1] = 0
+            elif value == 2:
+                spans[key][1] = spans[key][1] - 2
+                if spans[key][1] < 0:
+                    spans[key][1] = 0
+    return cycle_usage, pcycles
