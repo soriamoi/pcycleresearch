@@ -1,0 +1,20 @@
+import operator 
+
+## FITNESS FUNCTION FOR GA-SCA:
+    # [minimum] cost of each individual (init_pop_member)
+    
+def calculate_fitness_cost(pcycle_costs, individual):
+    ind_cost = 0
+    for p_key, _usage in individual.items():
+        cost_p = pcycle_costs[p_key]
+        ind_cost += cost_p * _usage
+    return ind_cost
+    
+def rankCost(pcycle_costs, population):
+    fitness_results = {}
+    for i in range(0, len(population)):
+        fitness_results[i] = int(calculate_fitness_cost(pcycle_costs, population[i]))
+    rank_pop = sorted(fitness_results.items(), key = operator.itemgetter(1))
+    ranked_pop = [population[item[0]] for item in rank_pop]
+    ranked_cost = [item[1] for item in rank_pop]
+    return ranked_pop, ranked_cost
