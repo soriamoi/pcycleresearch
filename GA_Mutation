@@ -1,0 +1,293 @@
+## MUTATION FUNCTIONS FOR GA-SCA:  5 mutation methods
+    # 1. Randomly remove one cycle (and all its copies used) --> repair it
+    # 2. Cycle_merging:
+    # 3. Randomly remove one copy of a cycle, and add one random cycle (one copy) --> repair it
+    # 4. Randomly pick an ind, remove 10% cycles with largest costs, add 5 random cycle --> repair it
+    # 5. Randomly remove all copies of 1 cycle, add 1 copy 1 random cycle --> repair it
+    
+    
+# 1. Randomly remove one copy of a cycle:
+
+def mutate_rand_remove(individual, pcycles):
+    individual_copy = copy.deepcopy(individual)
+    individual_keys = list(individual_copy.keys())
+    swappee = int(random.random() * len(individual_keys))
+    individual_copy[individual_keys[swappee]] = int(individual_copy[individual_keys[swappee]])-1
+    
+    # remove one copy of a candidate cycle
+    new_individual = { k:v for k,v in individual_copy.items() if v > 0 }
+    
+    # Need repair algorithm:
+    repaired_individual, new_pcycle_set, new_pcycle_costs_set = repair_genome_mut(new_individual, spans, pcycles)
+    return repaired_individual, new_pcycle_set, new_pcycle_costs_set
+    
+    
+# 2. Cycle Merging (problem-specific, for GA-SCA only):
+
+def mutation_span_merge(individual, pcycles):
+    new_individual = copy.deepcopy(individual)
+    new_pcycle = {}
+    new_pcycle_usage = {}
+    final_individual = {}
+    
+    global new_id_mut
+    
+    ind_keys_list = list(individual.keys())
+    
+    for index1, cycle1_id in enumerate(ind_keys_list):
+        for index2, cycle2_id in enumerate(ind_keys_list):
+            if index2 > index1:
+                if cycle1_id == cycle2_id:
+                    continue
+                    
+                cycle_1spans_dict = dict(pcycles[cycle1_id])
+                cycle_2spans_dict = dict(pcycles[cycle2_id])
+                cycle_1node_list = []
+                cycle_2node_list = []
+                cycle_1usage = new_individual[cycle1_id]
+                cycle_2usage = new_individual[cycle2_id]
+                
+                if cycle_1usage == 0 or cycle_2usage == 0:
+                    continue
+                    
+                shared_items = [k for k in cycle_1spans_dict if k in cycle_2spans_dict and cycle_1spans_dict[k] == 1 and cycle_2spans_dict[k] == 1]
+                # check if no other nodes (other than the two nodes on the shared_items) are ovelapping
+                if len(shared_items) != 1:
+                    continue
+                    
+                new_individual_span = {}
+                
+                shared_items_N1 = span_node[list(shared_items)[0]][0]
+                shared_items_N2 = span_node[list(shared_items)[0]][1]
+                
+                for sp1 in cycle_1spans_dict.keys():
+                    sp1_N1 = span_node[sp1][0]
+                    sp1_N2 = span_node[sp1][1]
+                    cycle_1node_list.append(sp1_N1)
+                    cycle_1node_list.append(sp1_N2)
+                    
+                for sp2 in cycle_2spans_dict.keys():
+                    sp2_N1 = span_node[sp2][0]
+                    sp2_N2 = span_node[sp2][1]
+                    cycle_2node_list.append(sp2_N1)
+                    cycle_2node_list.append(sp2_N2)
+                    
+                shared_node = set(cycle_1node_list) & set(cycle_2node_list)
+                shared_node -= {shared_items_N1}
+                shared_node -= {shared_items_N2}
+                shared_node_list = list(shared_node)
+                
+                if shared_node_list:
+                    continue
+                    
+                # check if only share one span
+                
+                if len(shared_items) == 1:
+                    new_individual_span[shared_items[0]] = 2
+                    cycle_1spans_dict[shared_items[0]] = -1
+                    cycle_2spans_dict[shared_items[0]] = -1
+                    
+                    for kk, vv in cycle_1spans_dict.items():
+                        if vv != -1:
+                            new_individual_span[kk] = vv
+                    for kk, vv in cycle_2spans_dict.items():
+                        if vv != -1:
+                else:
+                    continue
+                    
+                new_individual_span[kk] = vv
+                new_cycle_id = "Merged_CYL" + str(new_id_mut) # new pcycle id given
+                new_pcycle[new_cycle_id] = new_individual_span
+                usage_new_cycle = min(cycle_1usage, cycle_2usage)
+                
+                new_pcycle_usage[new_cycle_id] = int(usage_new_cycle)
+                cycle_1usage -= int(usage_new_cycle)
+                new_individual[cycle1_id] = cycle_1usage
+                cycle_2usage -= int(usage_new_cycle)
+                new_individual[cycle2_id] = cycle_2usage
+                
+                new_id_mut += 1
+                    new_individual_new_pcycles = {**new_individual, **new_pcycle_usage}
+                    for mkk, mvv in new_individual_new_pcycles.items():
+                        if mvv > 0:
+                            final_individual[mkk] = mvv
+                            
+                    return final_individual, new_pcycle
+
+# 3. Remove one copy of a cycle , add one copy of a cycle:
+
+def mutate_remove1_add1(individual, pcycles):
+    individual_copy = copy.deepcopy(individual)
+    individual_keys = list(individual_copy.keys())
+    individual_added = {}
+    
+    swapper_id = None
+    swappee = int(random.random() * len(individual_keys))
+    
+    individual_copy[individual_keys[swappee]] = int(individual_copy[individual_keys[swappee]])-1
+    
+    # remove one copy of a candidate cycle
+    swapper_id = pick_random_cycle(pcycles) # add one random cycle
+    
+    if swapper_id not in individual_copy:
+        individual_added[swapper_id] = 1
+    individual_copy = { k:v for k,v in individual_copy.items() if v > 0 }
+    # Merge individual_copy and individual_added
+    new_individual = { k: individual_copy.get(k, 0) + individual_added.get(k, 0) for k in set(individual_added) | set(individual_copy) }
+    repaired_individual, new_pcycle_set, new_pcycle_costs_set = repair_genome_mut(new_individual, spans, pcycles)
+    
+    return repaired_individual, new_pcycle_set, new_pcycle_costs_set
+    
+# 4. Remove one copy of each worst 10% cycles, add 3 rand cycles:
+def mutate_less10add3(individual, pcycles, pcycles_costs):
+    individual_copy = copy.deepcopy(individual)
+    individual_cost = []
+    added_inds = {}
+    pcycle_ids = []
+    new_individual = {}
+    
+    for cycle_id, cycle_usage in individual_copy.items():
+        if cycle_usage == 0:
+            continue
+        individual_cost.append((cycle_id, pcycles_costs[cycle_id]))  # individual_cost is [('cycle id', cycle cost), (,), (,)...]
+        pcycle_ids.append(cycle_id)
+        
+    while True:
+        rand_index = int(random.random() * len(pcycles))
+        pick_rand_cyc = list(pcycles.keys())[rand_index]
+        if pick_rand_cyc not in pcycle_ids:
+            added_inds[pick_rand_cyc] = 1
+        if len(added_inds) == 3: # add 3 random cycles
+            break
+            
+    # Remove one copy from each bottom 10% (selecting top 90%)
+    sorted_tup = sorted(individual_cost, key=lambda e:e[1])  # sort the list from small cost to large cost
+    
+    for ind in range(int(len(sorted_tup)* 0.9), len(sorted_tup)):
+        select_id = sorted_tup[ind][0]
+        if int(individual_copy[select_id]) >= 1:
+            individual_copy[select_id] = int(individual_copy[select_id])-1
+            
+    # Merge added_inds and individual_copy
+    new_individual = { k: added_inds.get(k, 0) + individual_copy.get(k, 0) for k in set(added_inds) | set(individual_copy) }
+    new_individual = { k:v for k,v in new_individual.items() if v > 0 }
+    repaired_individual, new_pcycle_set, new_pcycle_costs_set = repair_genome_mut(new_individual, spans, pcycles)
+
+    return repaired_individual, new_pcycle_set, new_pcycle_costs_set
+
+# 5. Remove one cycle (all copies), add one cycle:
+
+def mutate_remove1all_add1(individual, pcycles):
+    individual_copy = copy.deepcopy(individual)
+    individual_keys = list(individual_copy.keys())
+    individual_added = {}
+    
+    swapper_id = None
+    swappee = int(random.random() * len(individual_keys))
+    individual_copy[individual_keys[swappee]] = -100
+    swapper_id = pick_random_cycle(pcycles) # Adding one random cycle to new_individual
+    
+    if swapper_id not in individual_copy:
+        individual_added[swapper_id] = 1
+    individual2 = { k:v for k,v in individual_copy.items() if v != -100 }
+    
+    # Remove one cycle: Merge individual2 and individual_added
+    new_individual = { k: individual2.get(k, 0) + individual_added.get(k, 0) for k in set(individual_added) | set(individual2) }
+    repaired_individual, new_pcycle_set, new_pcycle_costs_set = repair_genome_mut(new_individual, spans, pcycles)
+    
+    return repaired_individual, new_pcycle_set, new_pcycle_costs_set
+
+# Mutation 1. Randomly remove a cycle * copies of that cycle:
+
+def mutate1(mutation_pop,mutation_rate, pcycle_costs, pcycles):
+    mutated_children = []
+    pcycle_set1 = pcycles
+    pcycle_costs1 = pcycle_costs
+    
+    for _ in range(len(mutation_pop)):
+        if random.random() < mutation_rate:
+            pick_ii = select_random(mutation_pop)
+            mutated_ind, new_pcycle_set, new_pcycle_costs_set = mutate_rand_remove(pick_ii,pcycles)
+            mutated_children.append(mutated_ind)
+            pcycle_set1 = {**pcycle_set1, **new_pcycle_set}
+            pcycle_costs1 = {**pcycle_costs1, **new_pcycle_costs_set}         
+    return mutated_children, pcycle_set1, pcycle_costs1
+
+# Mutation 2. Cycle Merging:
+
+def mutate2(mutation_pop,mutation_rate, pcycle_costs, pcycles):
+    mutated_children = []
+    new_pcycle_set = {}
+    new_pcycle_costs_set = {}
+    
+    for _ind in range(len(mutation_pop)):
+        if random.random() < mutation_rate:
+            pick_ii = select_random(mutation_pop)
+            mutated_ind, new_pcycle = mutation_span_merge(pick_ii, pcycles)
+            mutated_children.append(mutated_ind.copy())
+            new_pcycle_set = {**new_pcycle_set, **new_pcycle}
+            new_pcycle_cost_dict = calculate_p_cost(spans, new_pcycle_set)
+            new_pcycle_costs_set = {**new_pcycle_costs_set, **new_pcycle_cost_dict}
+    return mutated_children, new_pcycle_set, new_pcycle_costs_set
+    
+# Mutation 3. Remove one copy of a cycle , add one copy of a cycle:
+
+def mutate3(mutation_pop,mutation_rate, pcycle_costs, pcycles):
+    mutated_children = []
+    pcycle_set3 = pcycles
+    pcycle_costs3 = pcycle_costs
+    for _ in range(len(mutation_pop)):
+        if random.random() < mutation_rate:
+            pick_ii = select_random(mutation_pop)
+            mutated_ind, new_pcycle_set, new_pcycle_costs_set = mutate_remove1_add1(pick_ii, pcycles)
+            mutated_children.append(mutated_ind)
+            pcycle_set3 = {**pcycle_set3, **new_pcycle_set}
+            pcycle_costs3 = {**pcycle_costs3, **new_pcycle_costs_set}
+    return mutated_children, pcycle_set3, pcycle_costs3
+    
+# Mutation 4. Remove one copy of each worst 10% cycles, add 3 rand cycles:
+
+def mutate4(mutation_pop,mutation_rate, pcycle_costs, pcycles):
+    mutated_children = []
+    pcycle_set4 = pcycles
+    pcycle_costs4 = pcycle_costs
+    for _ in range(len(mutation_pop)):
+        if random.random() < mutation_rate:
+            pick_ii = select_random(mutation_pop)
+            mutated_ind, new_pcycle_set, new_pcycle_costs_set = mutate_less10add3(pick_ii, pcycle_set4, pcycle_costs4)
+            mutated_children.append(mutated_ind)
+            pcycle_set4 = {**pcycle_set4, **new_pcycle_set}
+            pcycle_costs4 = {**pcycle_costs4, **new_pcycle_costs_set}
+    return mutated_children, pcycle_set4, pcycle_costs4
+    
+# Mutation 5. Remove one cycle completely, add one copy of a cycle:
+
+def mutate5(mutation_pop,mutation_rate, pcycle_costs, pcycles):
+    mutated_children = []
+    pcycle_set5 = pcycles
+    pcycle_costs5 = pcycle_costs
+    for _ in range(len(mutation_pop)):
+        if random.random() < mutation_rate:
+            pick_ii = select_random(mutation_pop)
+            mutated_ind, new_pcycle_set, new_pcycle_costs_set = mutate_remove1all_add1(pick_ii, pcycles)
+            mutated_children.append(mutated_ind)
+            pcycle_set5 = {**pcycle_set5, **new_pcycle_set}
+            pcycle_costs5 = {**pcycle_costs5, **new_pcycle_costs_set}
+    return mutated_children, pcycle_set5, pcycle_costs5
+
+## Mutation population function
+
+def mutate_pop(mutation, ranked_pop, mutation_rate, pcycle_costs, pcycle_set):
+    if mutation == "mutate1":
+        mutated_children, new_pcycles, new_pcycle_costs = mutate1(ranked_pop,mutation_rate, pcycle_costs, pcycle_set)
+    elif mutation == "mutate2":
+        mutated_children, new_pcycles, new_pcycle_costs = mutate2(ranked_pop,mutation_rate, pcycle_costs, pcycle_set)
+    elif mutation == "mutate3":
+      mutated_children, new_pcycles, new_pcycle_costs = mutate3(ranked_pop,mutation_rate, pcycle_costs, pcycle_set)
+    elif mutation == "mutate4":
+        mutated_children, new_pcycles, new_pcycle_costs = mutate4(ranked_pop,mutation_rate, pcycle_costs, pcycle_set)
+    elif mutation == "mutate5":
+        mutated_children, new_pcycles, new_pcycle_costs = mutate5(ranked_pop,mutation_rate, pcycle_costs, pcycle_set)
+    return mutated_children, new_pcycles, new_pcycle_costs
+
+
