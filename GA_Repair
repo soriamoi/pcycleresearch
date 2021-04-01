@@ -1,4 +1,4 @@
-## Methods for Repairing Genome: ##
+## REPAIR FUNCTIONS for Repairing Genome: ##
 
 # 1. Minimum cycles for Repair Genome
 
@@ -124,3 +124,93 @@ def Max_Overlap_Cost(spans, pcycles):
                 if spans[key][1] < 0:
                     spans[key][1] = 0
     return cycle_usage, pcycles
+
+# REPAIR MECHANISM FOR GA-SCA:
+
+## Repair crossover genome:
+
+def repair_genome_cross(child_genome, spans, pcycles):
+    unprotected_span = {}
+    protected_spans = {}
+    
+    for k, usage in child_genome.items():
+        for _k in pcycles[k].keys():
+            if _k not in protected_spans:
+                if pcycles[k][_k] == 1:
+                    protected_spans[_k] = usage
+                else:
+                    protected_spans[_k] = 2*usage
+            else:
+                if pcycles[k][_k] == 1:
+                    protected_spans[_k] += usage
+                else:
+                    protected_spans[_k] += 2*usage
+                    
+    for span in spans.keys():
+        if span not in protected_spans.keys():
+            unprotected_span[span] = int(spans[span][1])
+        else:
+            if spans[span][1] > protected_spans[span]:
+                unprotected_span[span] = int(spans[span][1]) - int(protected_spans[span])
+                
+    spans_merge = {}
+    for kkey, vval in unprotected_span.items():
+        spans_merge[kkey] = [spans[kkey][0], vval]
+    for kkey, vval in spans.items():
+        if kkey not in spans_merge:
+            spans_merge[kkey] = [spans[kkey][0], 0]
+            
+    ## Repair by Max_Match for cross-over operator:  
+    compensation_cycle, _ = Max_Overlap_Cost(spans_merge, pcycles)    
+    repaired_child = { k: child_genome.get(k, 0) + compensation_cycle.get(k, 0) for k in set(child_genome) | set(compensation_cycle) }
+    
+    return repaired_child
+
+
+## Repairing mutation genome:
+
+def repair_genome_mut(child_genome, spans, pcycles):
+    unprotected_span = {}
+    protected_spans = {}
+    new_pcycle_set = {}
+    new_pcycle_costs_set = {}
+    
+    for k, usage in child_genome.items():
+        for _k in pcycles[k].keys():
+            if _k not in protected_spans:
+                if pcycles[k][_k] == 1:
+                    protected_spans[_k] = usage
+                else:
+                    protected_spans[_k] = 2*usage
+            else:
+                if pcycles[k][_k] == 1:
+                    protected_spans[_k] += usage
+                else:
+                    protected_spans[_k] += 2*usage
+                    
+    for span in spans.keys():
+        if span not in protected_spans.keys():
+            unprotected_span[span] = int(spans[span][1])
+        else:
+            if spans[span][1] > protected_spans[span]:
+                unprotected_span[span] = int(spans[span][1]) - int(protected_spans[span])
+                
+    spans_merge = {}
+    for kkey, vval in unprotected_span.items():
+        spans_merge[kkey] = [spans[kkey][0], vval]
+    for kkey, vval in spans.items():
+        if kkey not in spans_merge:
+            spans_merge[kkey] = [spans[kkey][0], 0]
+            
+    ## Repair by Min_cycle:
+    compensation_cycle, new_pcycle = Min_Cycle_Repair(spans_merge, pcycles, span_node, node_span)
+    
+    ## Repair by Max_Match:
+    #compensation_cycle, new_pcycle = Max_Overlap_Cost(spans_merge, pcycles)
+    
+    repaired_child = { k: child_genome.get(k, 0) + compensation_cycle.get(k, 0) for k in set(child_genome) | set(compensation_cycle) }
+    new_pcycle_set = {**new_pcycle_set, **new_pcycle} # useless for repair method 3
+    new_pcycle_cost_dict = calculate_p_cost(spans, new_pcycle_set) # useless for repair method 3
+    new_pcycle_costs_set = {**new_pcycle_costs_set, **new_pcycle_cost_dict} # useless for repair method 3
+    
+    return repaired_child, new_pcycle_set, new_pcycle_costs_set
